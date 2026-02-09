@@ -1,84 +1,84 @@
-# PEKAT Inspection Tool – Uživatelský návod
+# PEKAT Inspection Tool - Uzivatelsky navod
 
-Tento dokument popisuje ovládání aplikace z pohledu uživatele.
+Tento dokument popisuje ovladani aplikace z pohledu uzivatele.
 
-## Hlavní okno (Konfigurace)
+## Hlavni okno (Konfigurace)
 
-### 1) Režim (SDK/REST)
+### 1) Rezim (SDK/REST)
 - `REST` je default
-- `SDK` použijte pouze pokud bìží lokálnì s dostupným SDK
+- `SDK` pouzijte pouze pokud bezi lokalne s dostupnym SDK
 
 ### 2) Host / Port
-- IP adresa a port bìžícího projektu
+- IP adresa a port beziciho projektu
 - Default: `127.0.0.1` / `8000`
 
 ### 3) Project path
-- Cesta k projektu (potøebná pouze pro PM TCP øízení)
+- Cesta k projektu (potrebna pouze pro PM TCP rizeni)
 
-### 4) Složka / Podsložky / Soubory
-- **Složka**: hlavní vstupní složka
-- **Zahrnout podsložky**: zda skenovat i podadresáøe
-- **Vybrat soubory**: lze odeslat konkrétní soubory
+### 4) Slozka / Podslozky / Soubory
+- **Slozka**: hlavni vstupni slozka
+- **Zahrnout podslozky**: zda skenovat i podadresare
+- **Vybrat soubory**: lze odeslat konkretni soubory
 
-### 5) Režim bìhu
-- `loop`: dokola pøes snapshot souborù
-- `once`: jednorázovì a konec
-- `initial_then_watch`: pošle aktuální a pak sleduje nové
+### 5) Rezim behu
+- `loop`: dokola pres snapshot souboru
+- `once`: jednorazove a konec
+- `initial_then_watch`: posle aktualni a pak sleduje nove
 
 ### 6) Prodleva (ms)
-- Pauza mezi odesílanými snímky
+- Pauza mezi odesilanymi snimky
 
-### 7) Data (co se posílá do PEKAT jako `data`)
-- **Include filename**: název souboru bez pøípony
-- **Include timestamp**: pøidá `_HH_MM_SS_`
-- **Include string**: povolí vlastní text
+### 7) Data (co se posila do PEKAT jako `data`)
+- **Include filename**: nazev souboru bez pripony
+- **Include timestamp**: prida `_HH_MM_SS_`
+- **Include string**: povoli vlastni text
 
 ### 8) API key
-- Tlaèítko **API key setup** otevøe dialog pro nastavení
-- Ponechte prázdné, pokud projekt není zabezpeèený
+- Tlacitko **API key setup** otevre dialog pro nastaveni
+- Ponechte prazdne, pokud projekt neni zabezpeceny
 
 ### 9) Project control (PM TCP)
-- **PM TCP enabled**: zapne TCP øízení projektu
+- **PM TCP enabled**: zapne TCP rizeni projektu
 - **Host / Port**: TCP server Projects Manageru (typicky 7002)
 - **Policy**:
-  - `Off (status only)` – pouze status/ping
-  - `Auto-start on Connect` – start pøi Connect
-  - `Auto-start + Auto-stop on Disconnect` – start/stop
-  - `Automatic restart` – pøi odmítnutí pøipojení stop/start + retry
+  - `Off (status only)` - pouze status/ping
+  - `Auto-start on Connect` - start pri Connect
+  - `Auto-start + Auto-stop on Disconnect` - start/stop
+  - `Automatic restart` - pri odmitnuti pripojeni stop/start + retry
 
-Poznámka: Funguje pouze pokud je TCP server v Projects Manageru aktivní.
+Poznamka: Funguje pouze pokud je TCP server v Projects Manageru aktivni.
 
-### 10) Tlaèítka
-- **Connect**: pøipojí se k bìžícímu projektu
-- **Disconnect**: odpojí se
-- **Start sending**: zahájí odesílání snímkù (vyžaduje Connect)
-- **Stop sending**: zastaví odesílání
+### 10) Tlacitka
+- **Connect**: pripoji se k bezicimu projektu
+- **Disconnect**: odpoji se
+- **Start sending**: zahaji odesilani snimku (vyzaduje Connect)
+- **Stop sending**: zastavi odesilani
 
-### 11) Indikátory
-- **Connection**: stav pøipojení (connected/reconnecting/error)
-- **Sending**: stav odesílání
+### 11) Indikatory
+- **Connection**: stav pripojeni (connected/reconnecting/error)
+- **Sending**: stav odesilani
 - **Production Mode**:
-  - ON › projekt bìží v production režimu
-  - OFF › projekt není v production režimu
-  - Unknown › zatím nebyl žádný validní context
-- **Data preview**: poslední odeslaný `data` string
-- **Odesláno**: poèet odeslaných snímkù
-- **Reset counter and list**: ruènì resetuje poèítadlo
+  - ON -> projekt bezi v production rezimu
+  - OFF -> projekt neni v production rezimu
+  - Unknown -> zatim nebyl zadny validni context
+- **Data preview**: posledni odeslany `data` string
+- **Odeslano**: pocet odeslanych snimku
+- **Reset counter and list**: rucne resetuje pocitadlo
 
-## Log záložka
+## Log zalozka
 
-- Zobrazuje prùbìžný log aplikace
-- Dùležité události: pøipojení, restart, odesílání, chyby
+- Zobrazuje prubezny log aplikace
+- Dulezite udalosti: pripojeni, restart, odesilani, chyby
 
-## Doporuèený postup
+## Doporuceny postup
 
 1. Nastavit Host/Port
-2. Pokud používáte PM TCP, vyplnit Project path a zapnout PM TCP
+2. Pokud pouzivate PM TCP, vyplnit Project path a zapnout PM TCP
 3. Kliknout **Connect**
 4. Kliknout **Start sending**
 
 ## Tipy
 
-- Pokud se objevuje `reconnecting`, ovìøte, že projekt opravdu bìží na daném portu.
-- Pro PM TCP funkce musí být aktivní TCP server v Projects Manageru.
-- `data` se nevrací v REST odpovìdi – je dostupná uvnitø projektu (Code module).
+- Pokud se objevuje `reconnecting`, overte, ze projekt opravdu bezi na danem portu.
+- Pro PM TCP funkce musi byt aktivni TCP server v Projects Manageru.
+- `data` se nevraci v REST odpovedi - je dostupna uvnitr projektu (Code module).

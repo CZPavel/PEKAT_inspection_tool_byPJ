@@ -1,105 +1,105 @@
-# PEKAT Inspection Tool – Technical Overview
+# PEKAT Inspection Tool - Technical Overview
 
-Tento dokument popisuje technickou architekturu aplikace, tok dat a volání do PEKAT VISION.
+Tento dokument popisuje technickou architekturu aplikace, tok dat a volani do PEKAT VISION.
 
-## Pøehled architektury
+## Prehled architektury
 
-Aplikace je rozdìlena na ètyøi vrstvy:
+Aplikace je rozdelena na ctyri vrstvy:
 
-1. GUI/CLI vrstva – ovládání, validace vstupù, uložení nastavení
-2. Connection Manager – øízení pøipojení, ping, PM TCP akce, stav pøipojení
-3. Runner – skenování souborù, fronta, odesílání snímkù
-4. Klienti – REST/SDK/TCP
+1. GUI/CLI vrstva - ovladani, validace vstupu, ulozeni nastaveni
+2. Connection Manager - rizeni pripojeni, ping, PM TCP akce, stav pripojeni
+3. Runner - skenovani souboru, fronta, odesilani snimku
+4. Klienti - REST/SDK/TCP
 
-## Moduly a odpovìdnosti
+## Moduly a odpovednosti
 
 ### `pektool/core/connection.py`
-- Stav pøipojení: `disconnected | connecting | connected | reconnecting | error | disconnecting`
-- Vytváøí klienta (REST/SDK), provádí `ping`
-- PM TCP ovládání (start/stop/status) dle policy
-- Automatic restart: stop › start › èekání 30s › ping (max 5 pokusù)
-- Ukládá `last_context`, `last_production_mode`, `last_data`
-- Ukládá `total_sent` + `sent_list` (poslané soubory)
+- Stav pripojeni: `disconnected | connecting | connected | reconnecting | error | disconnecting`
+- Vytvari klienta (REST/SDK), provadi `ping`
+- PM TCP ovladani (start/stop/status) dle policy
+- Automatic restart: stop -> start -> cekani 30s -> ping (max 5 pokusu)
+- Uklada `last_context`, `last_production_mode`, `last_data`
+- Uklada `total_sent` + `sent_list` (poslane soubory)
 
 ### `pektool/core/runner.py`
-- Skenuje složku (polling) a plní frontu
-- Odesílá snímky pøes `ConnectionManager.client`
-- Není-li pøipojeno, èeká (žádné odesílání)
-- Loguje hodnotu `data` a výsledek do JSONL
+- Skenuje slozku (polling) a plni frontu
+- Odesila snimky pres `ConnectionManager.client`
+- Neni-li pripojeno, ceka (zadne odesilani)
+- Loguje hodnotu `data` a vysledek do JSONL
 
 ### `pektool/clients/rest_client.py`
 - REST endpointy:
   - `GET /ping`
   - `POST /analyze_image` s PNG bytes
 - Podporuje `data` jako URL parametr
-- Pokud vstup není PNG, provede konverzi pøes OpenCV › PNG
-- Parsování odpovìdi:
-  - `response_type=context` › `response.json()`
-  - jinak `ContextBase64utf` nebo `ImageLen` pøi `context_in_body`
+- Pokud vstup neni PNG, provede konverzi pres OpenCV -> PNG
+- Parsovani odpovedi:
+  - `response_type=context` -> `response.json()`
+  - jinak `ContextBase64utf` nebo `ImageLen` pri `context_in_body`
 
 ### `pektool/clients/sdk_client.py`
 - SDK instance `Instance(...).analyze(...)`
-- `data` je posláno pøes argument `data=`
+- `data` je poslano pres argument `data=`
 
 ### `pektool/clients/tcp_controller.py`
-- TCP pøíkazy pro Projects Manager:
+- TCP prikazy pro Projects Manager:
   - `start:<project_path>`
   - `stop:<project_path>`
   - `status:<project_path>`
-- Odpovìdi se oèekávají dle dokumentace PM (done, running, stopped, ...)
+- Odpovedi se ocekavaji dle dokumentace PM (done, running, stopped, ...)
 
-## Tok dat (zjednodušenì)
+## Tok dat (zjednodusene)
 
-1. GUI/CLI sestaví `AppConfig`
-2. ConnectionManager vytvoøí klienta a provede `ping`
-3. Runner skenuje složku › fronta
-4. Worker odesílá obrázek + `data` pøes REST/SDK
-5. Po úspìchu uloží:
+1. GUI/CLI sestavi `AppConfig`
+2. ConnectionManager vytvori klienta a provede `ping`
+3. Runner skenuje slozku -> fronta
+4. Worker odesila obrazek + `data` pres REST/SDK
+5. Po uspechu ulozi:
    - `last_context`
    - `Production_Mode` indikaci
    - `last_data`
 6. JSONL log + text log
 
-## Sestavení `data`
+## Sestaveni `data`
 
-`data` se skládá z volitelných èástí:
-- `Include string` › uživatelský prefix
-- `Include filename` › `path.stem`
-- `Include timestamp` › `_HH_MM_SS_`
+`data` se sklada z volitelnych casti:
+- `Include string` -> uzivatelsky prefix
+- `Include filename` -> `path.stem`
+- `Include timestamp` -> `_HH_MM_SS_`
 
-Výsledný `data` je vždy jeden øetìzec bez oddìlovaèù (kromì timestampu).
+Vysledny `data` je vzdy jeden retezec bez oddelovacu (krome timestampu).
 
 ## Production Mode indikace
 
-Z posledního úspìšného `context` se ète `Production_Mode`:
-- `True` › ON
-- `False` › OFF
-- není k dispozici › Unknown
+Z posledniho uspesneho `context` se cte `Production_Mode`:
+- `True` -> ON
+- `False` -> OFF
+- neni k dispozici -> Unknown
 
 ## PM TCP policy
 
 `connection.policy`:
 - `off`: pouze status/ping
-- `auto_start`: startuje projekt pøi Connect
-- `auto_start_stop`: startuje pøi Connect a stopuje pøi Disconnect
-- `auto_restart`: pøi odmítnutí pøipojení stop/start + retry (5×, 30s)
+- `auto_start`: startuje projekt pri Connect
+- `auto_start_stop`: startuje pri Connect a stopuje pri Disconnect
+- `auto_restart`: pri odmitnuti pripojeni stop/start + retry (5x, 30s)
 
-TCP policy funguje jen když:
+TCP policy funguje jen kdyz:
 - `projects_manager.tcp_enabled = true`
-- `project_path` není prázdný
+- `project_path` neni prazdny
 
 ## Logy
 
-- `logs/app.log`: systémové logy + odesílané `data`
-- `logs/results.jsonl`: per-image záznamy (timestamp, filename, data, status, ok_nok)
+- `logs/app.log`: systemove logy + odesilane `data`
+- `logs/results.jsonl`: per-image zaznamy (timestamp, filename, data, status, ok_nok)
 
 ## Konfigurace
 
-Základní config je v `configs/config.example.yaml`.
-GUI si ukládá poslední nastavení do `~/.pektool_gui.yaml`.
+Zakladni config je v `configs/config.example.yaml`.
+GUI si uklada posledni nastaveni do `~/.pektool_gui.yaml`.
 
-## Omezení
+## Omezeni
 
-- `data` je interní argument projektu a v REST odpovìdi se bìžnì nevrací.
+- `data` je interni argument projektu a v REST odpovedi se bezne nevraci.
 - Project Manager HTTP (port 7000) poskytuje list/status, ne start/stop.
-- PM TCP musí být aktivní v Projects Manager Settings.
+- PM TCP musi byt aktivni v Projects Manager Settings.
