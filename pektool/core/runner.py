@@ -24,7 +24,6 @@ class Runner:
         self.stop_event = threading.Event()
         self.scanner_thread: Optional[threading.Thread] = None
         self.worker_thread: Optional[threading.Thread] = None
-        self.sent_count = 0
         self.status = "stopped"
         self._jsonl_path = Path(config.logging.directory) / config.logging.jsonl_filename
         Path(config.logging.directory).mkdir(parents=True, exist_ok=True)
@@ -52,7 +51,7 @@ class Runner:
         return self.status
 
     def get_count(self) -> int:
-        return self.sent_count
+        return self.connection.total_sent
 
     def _scanner_loop(self) -> None:
         input_cfg = self.config.input
@@ -196,7 +195,7 @@ class Runner:
             self.connection.update_last_context(context)
             ok_nok = self._extract_ok_nok(context)
             latency_ms = int((time.perf_counter() - start) * 1000)
-            self.sent_count += 1
+            self.connection.record_sent(str(task.path))
             return AnalyzeResult(status="ok", latency_ms=latency_ms, error=None, context=context, ok_nok=ok_nok)
         except Exception as exc:
             latency_ms = int((time.perf_counter() - start) * 1000)

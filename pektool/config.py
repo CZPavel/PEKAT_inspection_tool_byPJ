@@ -78,7 +78,9 @@ class RestConfig(BaseModel):
 
 
 class ConnectionConfig(BaseModel):
-    policy: Literal["off", "auto_start", "auto_start_stop"] = "off"
+    policy: Literal["off", "auto_start", "auto_start_stop", "auto_restart"] = "off"
+    reconnect_attempts: int = 5
+    reconnect_delay_sec: int = 30
 
 
 class ProjectsManagerConfig(BaseModel):

@@ -19,6 +19,7 @@ pip install -e .
 Upravte `configs/config.example.yaml` podle svého prostředí.
 Pro REST autentizaci nastavte `rest.api_key`, `rest.api_key_location` a `rest.api_key_name`.
 Pozn.: `data` je interní argument v projektu (Code module) a v REST odpovědi se běžně nevrací.
+PM TCP řízení funguje pouze pokud je TCP server v Projects Manageru aktivní.
 
 ## Spuštění
 ### CLI

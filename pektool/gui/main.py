@@ -28,6 +28,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.stop_requested = False
         self.stop_start_time: float | None = None
         self.last_ping_time = 0.0
+        self.health_check_inflight = False
 
         self.tabs = QtWidgets.QTabWidget()
         self.setCentralWidget(self.tabs)
@@ -65,9 +66,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.port_spin.setValue(8000)
 
         self.project_path_edit = QtWidgets.QLineEdit("")
-
-        self.start_mode_combo = QtWidgets.QComboBox()
-        self.start_mode_combo.addItems(["auto", "connect_only", "always_start"])
 
         self.folder_edit = QtWidgets.QLineEdit("")
         browse_btn = QtWidgets.QPushButton("Vybrat složku")
@@ -114,7 +112,6 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addRow("Host", self.host_edit)
         layout.addRow("Port", self.port_spin)
         layout.addRow("Project path", self.project_path_edit)
-        layout.addRow("Start mode", self.start_mode_combo)
         layout.addRow("Složka", folder_layout)
         layout.addRow("", self.include_subfolders_check)
         layout.addRow("Soubory", files_layout)
@@ -138,6 +135,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.pm_policy_combo.addItem("Off (status only)", "off")
         self.pm_policy_combo.addItem("Auto-start on Connect", "auto_start")
         self.pm_policy_combo.addItem("Auto-start + Auto-stop on Disconnect", "auto_start_stop")
+        self.pm_policy_combo.addItem("Automatic restart", "auto_restart")
 
         pm_layout = QtWidgets.QHBoxLayout()
         pm_layout.addWidget(self.pm_tcp_enabled_check)
@@ -182,13 +180,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self.production_label = QtWidgets.QLabel("Production Mode: Unknown")
         self.data_preview_label = QtWidgets.QLabel("")
         self.count_label = QtWidgets.QLabel("0")
+        self.reset_counter_btn = QtWidgets.QPushButton("Reset counter and list")
+        self.reset_counter_btn.clicked.connect(self._reset_counters)
 
         layout.addRow(btn_layout)
         layout.addRow("Connection", self.connection_label)
         layout.addRow("Sending", self.send_status_label)
         layout.addRow("Production Mode", self.production_label)
         layout.addRow("Data preview", self.data_preview_label)
-        layout.addRow("Odesláno", self.count_label)
+        count_layout = QtWidgets.QHBoxLayout()
+        count_layout.addWidget(self.count_label)
+        count_layout.addWidget(self.reset_counter_btn)
+        layout.addRow("Odesláno", count_layout)
 
         self.pm_tcp_enabled_check.toggled.connect(self._update_pm_controls)
         self.project_path_edit.textChanged.connect(self._update_pm_controls)
@@ -219,8 +222,6 @@ class MainWindow(QtWidgets.QMainWindow):
         cfg.host = self.host_edit.text().strip() or "127.0.0.1"
         cfg.port = int(self.port_spin.value())
         cfg.project_path = self.project_path_edit.text().strip()
-        cfg.start_mode = self.start_mode_combo.currentText()
-
         cfg.input.folder = self.folder_edit.text().strip()
         cfg.input.include_subfolders = self.include_subfolders_check.isChecked()
         if self.selected_files:
@@ -252,8 +253,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self._save_gui_settings()
         logger = setup_logging(cfg.logging)
         logger.addHandler(self.qt_handler)
-        connection = ConnectionManager(cfg, logger)
-        self.state.connection = connection
+        if self.state.connection is None:
+            connection = ConnectionManager(cfg, logger)
+            self.state.connection = connection
+        else:
+            connection = self.state.connection
+            connection.update_config(cfg)
         self.state.config = cfg
 
         self.connect_btn.setEnabled(False)
@@ -285,7 +290,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self.state.connection or not self.state.connection.is_connected():
             QtWidgets.QMessageBox.warning(self, "Not connected", "Nejprve se připojte k projektu.")
             return
-        cfg = self.state.config or self._gather_config()
+        cfg = self._gather_config()
+        self.state.config = cfg
         logger = self.state.connection.logger if self.state.connection else setup_logging(cfg.logging)
         logger.addHandler(self.qt_handler)
         runner = Runner(cfg, self.state.connection, logger)
@@ -323,9 +329,18 @@ class MainWindow(QtWidgets.QMainWindow):
                 and connection.state not in {"connecting", "disconnecting"}
                 and time.time() - self.last_ping_time >= cfg.pekat.health_ping_sec
             ):
-                connection.check_health()
-                self.last_ping_time = time.time()
-            self.connection_label.setText(connection.state)
+                if not self.health_check_inflight:
+                    self.health_check_inflight = True
+
+                    def _health_worker() -> None:
+                        try:
+                            connection.check_health()
+                        finally:
+                            self.health_check_inflight = False
+
+                    threading.Thread(target=_health_worker, daemon=True).start()
+                    self.last_ping_time = time.time()
+            self.connection_label.setText(connection.status_text)
             if connection.last_production_mode is True:
                 self.production_label.setText("Production Mode ON")
             elif connection.last_production_mode is False:
@@ -337,10 +352,10 @@ class MainWindow(QtWidgets.QMainWindow):
             self.connection_label.setText("disconnected")
             self.production_label.setText("Production Mode: Unknown")
             self.data_preview_label.setText("")
+            self.count_label.setText("0")
 
         if not runner:
             self.send_status_label.setText("stopped")
-            self.count_label.setText("0")
         else:
             if self.stop_requested:
                 elapsed = int(time.time() - (self.stop_start_time or time.time()))
@@ -353,10 +368,19 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.stop_btn.setEnabled(False)
                 self.stop_requested = False
 
+        if connection:
+            self.count_label.setText(str(connection.total_sent))
+
         self._sync_controls()
 
     def _append_log(self, message: str) -> None:
         self.log_view.append(message)
+
+    def _reset_counters(self) -> None:
+        if self.state.connection:
+            self.state.connection.reset_counters()
+        self.count_label.setText("0")
+        self.data_preview_label.setText("")
 
     def _update_pm_controls(self) -> None:
         has_path = bool(self.project_path_edit.text().strip())
@@ -387,12 +411,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self.stop_btn.setEnabled(sending)
 
         config_enabled = not (connected or connecting or sending)
-        for widget in [
+        connection_widgets = [
             self.mode_combo,
             self.host_edit,
             self.port_spin,
             self.project_path_edit,
-            self.start_mode_combo,
+            self.pm_tcp_enabled_check,
+            self.pm_tcp_host_edit,
+            self.pm_tcp_port_spin,
+            self.pm_policy_combo,
+            self.api_key_button,
+        ]
+        sending_widgets = [
             self.folder_edit,
             self.include_subfolders_check,
             self.file_select_btn,
@@ -402,16 +432,16 @@ class MainWindow(QtWidgets.QMainWindow):
             self.data_timestamp_check,
             self.data_string_check,
             self.data_string_edit,
-            self.pm_tcp_enabled_check,
-            self.pm_tcp_host_edit,
-            self.pm_tcp_port_spin,
-            self.pm_policy_combo,
-            self.api_key_button,
-        ]:
-            widget.setEnabled(config_enabled)
-        if config_enabled:
-            self.data_string_edit.setEnabled(self.data_string_check.isChecked())
+        ]
+
+        for widget in connection_widgets:
+            widget.setEnabled(not (connected or connecting))
+        for widget in sending_widgets:
+            widget.setEnabled(not sending)
+
+        if not (connected or connecting):
             self._update_pm_controls()
+        self.data_string_edit.setEnabled(self.data_string_check.isChecked() and not sending)
     def _gui_config_path(self) -> Path:
         return Path.home() / ".pektool_gui.yaml"
 
@@ -428,7 +458,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.port_spin.setValue(int(data.get("port", 8000)))
         self.mode_combo.setCurrentText("rest")
         self.project_path_edit.setText(data.get("project_path", ""))
-        self.start_mode_combo.setCurrentText(data.get("start_mode", "auto"))
         self.folder_edit.setText(data.get("folder", ""))
         self.include_subfolders_check.setChecked(bool(data.get("include_subfolders", True)))
         self.run_mode_combo.setCurrentText(data.get("run_mode", "initial_then_watch"))
@@ -463,7 +492,6 @@ class MainWindow(QtWidgets.QMainWindow):
             "port": int(self.port_spin.value()),
             "mode": self.mode_combo.currentText(),
             "project_path": self.project_path_edit.text().strip(),
-            "start_mode": self.start_mode_combo.currentText(),
             "folder": self.folder_edit.text().strip(),
             "include_subfolders": self.include_subfolders_check.isChecked(),
             "run_mode": self.run_mode_combo.currentText(),

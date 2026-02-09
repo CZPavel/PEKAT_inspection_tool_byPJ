@@ -45,6 +45,8 @@ rest:
 
 connection:
   policy: off
+  reconnect_attempts: 5
+  reconnect_delay_sec: 30
 
 projects_manager:
   tcp_host: "127.0.0.1"
