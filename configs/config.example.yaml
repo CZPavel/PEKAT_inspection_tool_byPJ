@@ -43,10 +43,13 @@ rest:
   api_key_name: "api_key"
   use_session: true
 
+connection:
+  policy: off
+
 projects_manager:
   tcp_host: "127.0.0.1"
   tcp_port: 7002
-  enable_tcp: false
+  tcp_enabled: false
   http_base_url: "http://127.0.0.1:7000"
   enable_http_list: false
 

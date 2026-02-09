@@ -10,20 +10,20 @@ from typing import Any, Dict, List, Optional, Set
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from ..config import AppConfig
+from .connection import ConnectionManager
 from ..io.file_scanner import FileScanner
 from ..types import AnalyzeResult, ImageTask
 
 
 class Runner:
-    def __init__(self, config: AppConfig, client, logger) -> None:
+    def __init__(self, config: AppConfig, connection: ConnectionManager, logger) -> None:
         self.config = config
-        self.client = client
+        self.connection = connection
         self.logger = logger
         self.queue: "queue.Queue[ImageTask]" = queue.Queue(maxsize=config.behavior.queue_maxsize)
         self.stop_event = threading.Event()
         self.scanner_thread: Optional[threading.Thread] = None
         self.worker_thread: Optional[threading.Thread] = None
-        self.ping_thread: Optional[threading.Thread] = None
         self.sent_count = 0
         self.status = "stopped"
         self._jsonl_path = Path(config.logging.directory) / config.logging.jsonl_filename
@@ -38,14 +38,12 @@ class Runner:
         self.worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
         self.scanner_thread.start()
         self.worker_thread.start()
-        self.ping_thread = threading.Thread(target=self._ping_loop, daemon=True)
-        self.ping_thread.start()
         self.status = "running"
 
     def stop(self) -> None:
         self.stop_event.set()
         timeout = self.config.behavior.graceful_stop_timeout_sec
-        for thread in [self.scanner_thread, self.worker_thread, self.ping_thread]:
+        for thread in [self.scanner_thread, self.worker_thread]:
             if thread:
                 thread.join(timeout=timeout)
         self.status = "stopped"
@@ -174,7 +172,7 @@ class Runner:
 
     def _worker_loop(self) -> None:
         while not self.stop_event.is_set():
-            if self.status == "reconnecting":
+            if not self.connection.is_connected():
                 time.sleep(1.0)
                 continue
             try:
@@ -192,7 +190,10 @@ class Runner:
     def _process_task(self, task: ImageTask) -> Optional[AnalyzeResult]:
         start = time.perf_counter()
         try:
+            self.connection.update_last_data(task.data_value)
+            self.logger.info("Sending data: %s", task.data_value)
             context, _ = self._analyze_with_retry(task)
+            self.connection.update_last_context(context)
             ok_nok = self._extract_ok_nok(context)
             latency_ms = int((time.perf_counter() - start) * 1000)
             self.sent_count += 1
@@ -271,13 +272,6 @@ class Runner:
         transient = (ConnectionError, TimeoutError, OSError) + request_errors
         return isinstance(exc, transient)
 
-    def _ping_loop(self) -> None:
-        interval = getattr(self.config.pekat, "health_ping_sec", 5.0)
-        while not self.stop_event.is_set():
-            ok = self.client.ping()
-            self.status = "connected" if ok else "reconnecting"
-            time.sleep(interval)
-
     def _analyze_with_retry(self, task: ImageTask):
         cfg = self.config.pekat
 
@@ -288,7 +282,10 @@ class Runner:
             reraise=True,
         )
         def _run():
-            return self.client.analyze(
+            client = self.connection.client
+            if client is None:
+                raise RuntimeError("Not connected to PEKAT instance.")
+            return client.analyze(
                 task.path,
                 data=task.data_value,
                 timeout_sec=cfg.timeout_sec,

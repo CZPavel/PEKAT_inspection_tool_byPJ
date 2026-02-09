@@ -8,10 +8,9 @@ from typing import List, Optional
 import typer
 
 from .clients.projects_http import ProjectsManagerHttp
-from .clients.rest_client import RestClient
-from .clients.sdk_client import SDKClient
 from .clients.tcp_controller import TCPController
 from .config import AppConfig, load_config
+from .core.connection import ConnectionManager
 from .core.runner import Runner
 from .logging_setup import setup_logging
 
@@ -26,25 +25,6 @@ def _load_config(path: Optional[Path]) -> AppConfig:
     if path is None:
         return AppConfig()
     return load_config(path)
-
-
-def _create_client(config: AppConfig):
-    if config.mode == "rest":
-        return RestClient(
-            host=config.host,
-            port=config.port,
-            api_key=config.rest.api_key,
-            api_key_location=config.rest.api_key_location,
-            api_key_name=config.rest.api_key_name,
-            use_session=config.rest.use_session,
-        )
-    return SDKClient(
-        host=config.host,
-        port=config.port,
-        project_path=config.project_path,
-        start_mode=config.start_mode,
-        already_running=config.already_running,
-    )
 
 
 @app.command()
@@ -107,12 +87,15 @@ def run(
         cfg.start_mode = start_mode
 
     logger = setup_logging(cfg.logging)
-    client = _create_client(cfg)
-    runner = Runner(cfg, client, logger)
+    connection = ConnectionManager(cfg, logger)
+    if not connection.connect():
+        typer.echo("Failed to connect to PEKAT instance.")
+        return
+    runner = Runner(cfg, connection, logger)
 
     def _graceful_stop(*_args):
         runner.stop()
-        client.stop()
+        connection.disconnect()
 
     signal.signal(signal.SIGINT, _graceful_stop)
     signal.signal(signal.SIGTERM, _graceful_stop)
@@ -133,8 +116,8 @@ def ping(
     if config is None:
         config = _default_config_path() if _default_config_path().exists() else None
     cfg = _load_config(config)
-    client = _create_client(cfg)
-    ok = client.ping()
+    connection = ConnectionManager(cfg, setup_logging(cfg.logging))
+    ok = connection.connect()
     typer.echo("OK" if ok else "FAILED")
 
 

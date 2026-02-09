@@ -44,8 +44,10 @@ class RestClient(BaseClient):
 
     def stop(self) -> None:
         try:
-            self.session.get(f"{self.base_url}/stop", timeout=5)
-        except requests.RequestException:
+            close_fn = getattr(self.session, "close", None)
+            if callable(close_fn):
+                close_fn()
+        except Exception:
             pass
 
     def analyze(

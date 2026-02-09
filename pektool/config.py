@@ -77,12 +77,23 @@ class RestConfig(BaseModel):
     use_session: bool = True
 
 
+class ConnectionConfig(BaseModel):
+    policy: Literal["off", "auto_start", "auto_start_stop"] = "off"
+
+
 class ProjectsManagerConfig(BaseModel):
     tcp_host: str = "127.0.0.1"
     tcp_port: int = 7002
-    enable_tcp: bool = False
+    tcp_enabled: bool = False
+    enable_tcp: Optional[bool] = None
     http_base_url: str = "http://127.0.0.1:7000"
     enable_http_list: bool = False
+
+    @root_validator(pre=True)
+    def _map_enable_tcp(cls, values: dict) -> dict:
+        if "tcp_enabled" not in values and "enable_tcp" in values:
+            values["tcp_enabled"] = values.get("enable_tcp")
+        return values
 
 
 class LoggingConfig(BaseModel):
@@ -106,6 +117,7 @@ class AppConfig(BaseModel):
     pekat: PekatConfig = Field(default_factory=PekatConfig)
     rest: RestConfig = Field(default_factory=RestConfig)
     projects_manager: ProjectsManagerConfig = Field(default_factory=ProjectsManagerConfig)
+    connection: ConnectionConfig = Field(default_factory=ConnectionConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     class Config:
