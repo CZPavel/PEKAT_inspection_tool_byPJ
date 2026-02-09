@@ -39,7 +39,7 @@ class InputConfig(BaseModel):
 
 
 class BehaviorConfig(BaseModel):
-    run_mode: Literal["loop", "once", "initial_then_watch"] = "once"
+    run_mode: Literal["loop", "once", "initial_then_watch"] = "initial_then_watch"
     delay_between_images_ms: int = 0
     queue_maxsize: int = 100
     max_workers: int = 1

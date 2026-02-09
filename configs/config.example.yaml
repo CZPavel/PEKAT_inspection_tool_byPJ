@@ -16,7 +16,7 @@ input:
   stability_checks: 2
 
 behavior:
-  run_mode: once
+  run_mode: initial_then_watch
   delay_between_images_ms: 0
   queue_maxsize: 100
   max_workers: 1

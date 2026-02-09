@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from typing import List
 
+import yaml
 from PySide6 import QtCore, QtWidgets
 
 from ..clients.rest_client import RestClient
@@ -48,6 +49,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.timer.setInterval(1000)
         self.timer.timeout.connect(self._update_status)
 
+        self._load_gui_settings()
+
     def _build_config_tab(self) -> None:
         layout = QtWidgets.QFormLayout(self.config_tab)
 
@@ -85,6 +88,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.run_mode_combo = QtWidgets.QComboBox()
         self.run_mode_combo.addItems(["loop", "once", "initial_then_watch"])
+        self.run_mode_combo.setCurrentText("initial_then_watch")
 
         self.delay_spin = QtWidgets.QSpinBox()
         self.delay_spin.setRange(0, 600000)
@@ -92,10 +96,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.data_prefix_edit = QtWidgets.QLineEdit("")
 
-        self.api_key_edit = QtWidgets.QLineEdit("")
-        self.api_key_location = QtWidgets.QComboBox()
-        self.api_key_location.addItems(["query", "header"])
-        self.api_key_name = QtWidgets.QLineEdit("api_key")
+        self.api_key_value = ""
+        self.api_key_location_value = "query"
+        self.api_key_name_value = "api_key"
+        self.api_key_button = QtWidgets.QPushButton("API key setup")
+        self.api_key_button.clicked.connect(self._setup_api_key)
 
         layout.addRow("Režim (SDK/REST)", self.mode_combo)
         layout.addRow("Host", self.host_edit)
@@ -108,9 +113,7 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addRow("Režim běhu", self.run_mode_combo)
         layout.addRow("Prodleva (ms)", self.delay_spin)
         layout.addRow("Data prefix", self.data_prefix_edit)
-        layout.addRow("API key", self.api_key_edit)
-        layout.addRow("API key location", self.api_key_location)
-        layout.addRow("API key name", self.api_key_name)
+        layout.addRow("API key", self.api_key_button)
 
     def _build_run_tab(self) -> None:
         layout = QtWidgets.QVBoxLayout(self.run_tab)
@@ -144,6 +147,8 @@ class MainWindow(QtWidgets.QMainWindow):
         folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Vyberte složku")
         if folder:
             self.folder_edit.setText(folder)
+            self.selected_files = []
+            self.files_label.setText("0 souborů")
 
     def _select_files(self) -> None:
         files, _ = QtWidgets.QFileDialog.getOpenFileNames(self, "Vyberte soubory")
@@ -171,9 +176,9 @@ class MainWindow(QtWidgets.QMainWindow):
         cfg.behavior.delay_between_images_ms = int(self.delay_spin.value())
         cfg.pekat.data_prefix = self.data_prefix_edit.text()
 
-        cfg.rest.api_key = self.api_key_edit.text().strip()
-        cfg.rest.api_key_location = self.api_key_location.currentText()
-        cfg.rest.api_key_name = self.api_key_name.text().strip() or "api_key"
+        cfg.rest.api_key = self.api_key_value
+        cfg.rest.api_key_location = self.api_key_location_value
+        cfg.rest.api_key_name = self.api_key_name_value or "api_key"
 
         return cfg
 
@@ -197,6 +202,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _start(self) -> None:
         cfg = self._gather_config()
+        self._save_gui_settings()
         logger = setup_logging(cfg.logging)
         logger.addHandler(self.qt_handler)
         client = self._create_client(cfg)
@@ -229,6 +235,95 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _append_log(self, message: str) -> None:
         self.log_view.append(message)
+
+    def _gui_config_path(self) -> Path:
+        return Path.home() / ".pektool_gui.yaml"
+
+    def _load_gui_settings(self) -> None:
+        path = self._gui_config_path()
+        if not path.exists():
+            return
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except Exception:
+            return
+
+        self.host_edit.setText(data.get("host", "127.0.0.1"))
+        self.port_spin.setValue(int(data.get("port", 8000)))
+        self.mode_combo.setCurrentText(data.get("mode", "sdk"))
+        self.project_path_edit.setText(data.get("project_path", ""))
+        self.start_mode_combo.setCurrentText(data.get("start_mode", "auto"))
+        self.folder_edit.setText(data.get("folder", ""))
+        self.include_subfolders_check.setChecked(bool(data.get("include_subfolders", True)))
+        self.run_mode_combo.setCurrentText(data.get("run_mode", "initial_then_watch"))
+        self.delay_spin.setValue(int(data.get("delay_ms", 0)))
+        self.data_prefix_edit.setText(data.get("data_prefix", ""))
+
+        files = data.get("files") or []
+        if files:
+            self.selected_files = files
+            self.files_label.setText(f"{len(files)} souborů")
+
+        self.api_key_value = data.get("api_key", "")
+        self.api_key_location_value = data.get("api_key_location", "query")
+        self.api_key_name_value = data.get("api_key_name", "api_key")
+
+    def _save_gui_settings(self) -> None:
+        payload = {
+            "host": self.host_edit.text().strip() or "127.0.0.1",
+            "port": int(self.port_spin.value()),
+            "mode": self.mode_combo.currentText(),
+            "project_path": self.project_path_edit.text().strip(),
+            "start_mode": self.start_mode_combo.currentText(),
+            "folder": self.folder_edit.text().strip(),
+            "include_subfolders": self.include_subfolders_check.isChecked(),
+            "run_mode": self.run_mode_combo.currentText(),
+            "delay_ms": int(self.delay_spin.value()),
+            "data_prefix": self.data_prefix_edit.text(),
+            "files": self.selected_files,
+            "api_key": self.api_key_value,
+            "api_key_location": self.api_key_location_value,
+            "api_key_name": self.api_key_name_value,
+        }
+        path = self._gui_config_path()
+        path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+
+    def _setup_api_key(self) -> None:
+        dialog = ApiKeyDialog(
+            api_key=self.api_key_value,
+            location=self.api_key_location_value,
+            name=self.api_key_name_value,
+            parent=self,
+        )
+        if dialog.exec() == QtWidgets.QDialog.Accepted:
+            self.api_key_value = dialog.api_key_edit.text().strip()
+            self.api_key_location_value = dialog.location_combo.currentText()
+            self.api_key_name_value = dialog.name_edit.text().strip() or "api_key"
+
+
+class ApiKeyDialog(QtWidgets.QDialog):
+    def __init__(self, api_key: str, location: str, name: str, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("API key setup")
+        layout = QtWidgets.QFormLayout(self)
+
+        self.api_key_edit = QtWidgets.QLineEdit(api_key)
+        self.api_key_edit.setEchoMode(QtWidgets.QLineEdit.Password)
+        self.location_combo = QtWidgets.QComboBox()
+        self.location_combo.addItems(["query", "header"])
+        self.location_combo.setCurrentText(location)
+        self.name_edit = QtWidgets.QLineEdit(name)
+
+        layout.addRow("API key", self.api_key_edit)
+        layout.addRow("Location", self.location_combo)
+        layout.addRow("Name", self.name_edit)
+
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addRow(buttons)
 
 
 def main() -> None:
