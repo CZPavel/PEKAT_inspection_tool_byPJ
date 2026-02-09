@@ -1,0 +1,55 @@
+mode: sdk
+host: "127.0.0.1"
+port: 8000
+project_path: ""
+start_mode: auto
+already_running: false
+
+input:
+  source_type: folder
+  folder: "D:/images"
+  include_subfolders: true
+  files: []
+  extensions: [".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"]
+  order: mtime
+  poll_interval_sec: 1.0
+  stability_checks: 2
+
+behavior:
+  run_mode: once
+  delay_between_images_ms: 0
+  queue_maxsize: 100
+  max_workers: 1
+  graceful_stop_timeout_sec: 10
+
+pekat:
+  timeout_sec: 10
+  retry:
+    attempts: 5
+    backoff_sec: 1.0
+    max_backoff_sec: 10.0
+  response_type: context
+  context_in_body: false
+  data_prefix: ""
+  result_field: null
+  health_ping_sec: 5.0
+
+rest:
+  api_key: ""
+  api_key_location: query
+  api_key_name: "api_key"
+  use_session: true
+
+projects_manager:
+  tcp_host: "127.0.0.1"
+  tcp_port: 7002
+  enable_tcp: false
+  http_base_url: "http://127.0.0.1:7000"
+  enable_http_list: false
+
+logging:
+  directory: "logs"
+  jsonl_filename: "results.jsonl"
+  text_filename: "app.log"
+  rotate_bytes: 1048576
+  backups: 5

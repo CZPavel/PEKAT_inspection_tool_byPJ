@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pektool"
+version = "0.1.0"
+description = "PEKAT Inspection Tool"
+requires-python = ">=3.8"
+readme = "README.md"
+license = { text = "MIT" }
+
+dependencies = [
+  "typer>=0.9",
+  "PyYAML>=6.0",
+  "requests>=2.31",
+  "numpy>=1.22",
+  "opencv-python>=4.7",
+  "tenacity>=8.2",
+  "pydantic>=1.10,<3",
+  "PySide6>=6.5",
+  "pekat-vision-sdk",
+]
+
+[project.scripts]
+pektool = "pektool.cli:app"
+pektool-gui = "pektool.gui.main:main"
+
+[tool.setuptools]
+packages = ["pektool", "pektool.core", "pektool.io", "pektool.clients", "pektool.gui"]
