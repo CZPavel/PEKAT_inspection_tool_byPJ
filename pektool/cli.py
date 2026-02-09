@@ -57,7 +57,17 @@ def run(
     port: Optional[int] = typer.Option(None, "--port"),
     include_subfolders: Optional[bool] = typer.Option(None, "--include-subfolders/--no-include-subfolders"),
     run_mode: Optional[str] = typer.Option(None, "--run-mode", help="loop|once|initial_then_watch"),
-    data_prefix: Optional[str] = typer.Option(None, "--data-prefix"),
+    data_prefix: Optional[str] = typer.Option(None, "--data-prefix", help="Legacy prefix"),
+    data_string: Optional[str] = typer.Option(None, "--data-string"),
+    data_include_filename: Optional[bool] = typer.Option(
+        None, "--include-filename/--no-include-filename"
+    ),
+    data_include_timestamp: Optional[bool] = typer.Option(
+        None, "--include-timestamp/--no-include-timestamp"
+    ),
+    data_include_string: Optional[bool] = typer.Option(
+        None, "--include-string/--no-include-string"
+    ),
     start_mode: Optional[str] = typer.Option(None, "--start-mode", help="auto|connect_only|always_start"),
 ) -> None:
     if config is None:
@@ -82,7 +92,17 @@ def run(
     if run_mode:
         cfg.behavior.run_mode = run_mode
     if data_prefix is not None:
-        cfg.pekat.data_prefix = data_prefix
+        cfg.pekat.data_include_string = True
+        cfg.pekat.data_string_value = data_prefix
+    if data_string is not None:
+        cfg.pekat.data_include_string = True
+        cfg.pekat.data_string_value = data_string
+    if data_include_filename is not None:
+        cfg.pekat.data_include_filename = data_include_filename
+    if data_include_timestamp is not None:
+        cfg.pekat.data_include_timestamp = data_include_timestamp
+    if data_include_string is not None:
+        cfg.pekat.data_include_string = data_include_string
     if start_mode:
         cfg.start_mode = start_mode
 

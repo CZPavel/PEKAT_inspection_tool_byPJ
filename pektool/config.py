@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import List, Literal, Optional
 
 import yaml
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, root_validator, validator
 
 
 class RetryConfig(BaseModel):
@@ -51,9 +51,23 @@ class PekatConfig(BaseModel):
     retry: RetryConfig = Field(default_factory=RetryConfig)
     response_type: Literal["context", "image", "annotated_image", "heatmap"] = "context"
     context_in_body: bool = False
-    data_prefix: str = ""
+    data_include_filename: bool = True
+    data_include_timestamp: bool = False
+    data_include_string: bool = False
+    data_string_value: str = ""
+    data_prefix: str = ""  # legacy support
     result_field: Optional[str] = None
     health_ping_sec: float = 5.0
+
+    @root_validator(pre=True)
+    def _apply_legacy_prefix(cls, values: dict) -> dict:
+        data_prefix = values.get("data_prefix") or ""
+        data_string_value = values.get("data_string_value") or ""
+        data_include_string = values.get("data_include_string")
+        if data_prefix and not data_string_value and not data_include_string:
+            values["data_include_string"] = True
+            values["data_string_value"] = data_prefix
+        return values
 
 
 class RestConfig(BaseModel):

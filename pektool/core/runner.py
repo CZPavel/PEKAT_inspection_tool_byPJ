@@ -155,7 +155,7 @@ class Runner:
                 if not path.exists():
                     self.logger.warning("File missing: %s", path)
                     continue
-                data_value = f"{self.config.pekat.data_prefix}{path.stem}"
+                data_value = self._build_data_value(path)
                 task = ImageTask(path=path, data_value=data_value)
                 while not self.stop_event.is_set():
                     try:
@@ -221,6 +221,17 @@ class Runner:
         if isinstance(value, str):
             return value
         return None
+
+    def _build_data_value(self, path: Path) -> str:
+        parts: List[str] = []
+        cfg = self.config.pekat
+        if cfg.data_include_string and cfg.data_string_value:
+            parts.append(cfg.data_string_value)
+        if cfg.data_include_filename:
+            parts.append(path.stem)
+        if cfg.data_include_timestamp:
+            parts.append(time.strftime("_%H_%M_%S_"))
+        return "".join(parts)
 
     def _log_result(self, task: ImageTask, result: AnalyzeResult) -> None:
         record = {

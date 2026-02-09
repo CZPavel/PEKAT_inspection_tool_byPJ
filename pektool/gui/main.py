@@ -96,7 +96,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.delay_spin.setRange(0, 600000)
         self.delay_spin.setValue(150)
 
-        self.data_prefix_edit = QtWidgets.QLineEdit("")
+        self.data_filename_check = QtWidgets.QCheckBox("Include filename")
+        self.data_filename_check.setChecked(True)
+        self.data_timestamp_check = QtWidgets.QCheckBox("Include timestamp")
+        self.data_string_check = QtWidgets.QCheckBox("Include string")
+        self.data_string_edit = QtWidgets.QLineEdit("")
+        self.data_string_edit.setEnabled(False)
+        self.data_string_check.toggled.connect(self.data_string_edit.setEnabled)
 
         self.api_key_value = ""
         self.api_key_location_value = "query"
@@ -114,7 +120,12 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addRow("Soubory", files_layout)
         layout.addRow("Režim běhu", self.run_mode_combo)
         layout.addRow("Prodleva (ms)", self.delay_spin)
-        layout.addRow("Data prefix", self.data_prefix_edit)
+        data_layout = QtWidgets.QHBoxLayout()
+        data_layout.addWidget(self.data_filename_check)
+        data_layout.addWidget(self.data_timestamp_check)
+        data_layout.addWidget(self.data_string_check)
+        data_layout.addWidget(self.data_string_edit)
+        layout.addRow("Data", data_layout)
         layout.addRow("API key", self.api_key_button)
 
         self.start_btn = QtWidgets.QPushButton("Start")
@@ -176,7 +187,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         cfg.behavior.run_mode = self.run_mode_combo.currentText()
         cfg.behavior.delay_between_images_ms = int(self.delay_spin.value())
-        cfg.pekat.data_prefix = self.data_prefix_edit.text()
+        cfg.pekat.data_include_filename = self.data_filename_check.isChecked()
+        cfg.pekat.data_include_timestamp = self.data_timestamp_check.isChecked()
+        cfg.pekat.data_include_string = self.data_string_check.isChecked()
+        cfg.pekat.data_string_value = self.data_string_edit.text()
 
         cfg.rest.api_key = self.api_key_value
         cfg.rest.api_key_location = self.api_key_location_value
@@ -277,7 +291,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.include_subfolders_check.setChecked(bool(data.get("include_subfolders", True)))
         self.run_mode_combo.setCurrentText(data.get("run_mode", "initial_then_watch"))
         self.delay_spin.setValue(int(data.get("delay_ms", 150)))
-        self.data_prefix_edit.setText(data.get("data_prefix", ""))
+        self.data_filename_check.setChecked(bool(data.get("data_include_filename", True)))
+        self.data_timestamp_check.setChecked(bool(data.get("data_include_timestamp", False)))
+        self.data_string_check.setChecked(bool(data.get("data_include_string", False)))
+        self.data_string_edit.setText(data.get("data_string_value", ""))
+        self.data_string_edit.setEnabled(self.data_string_check.isChecked())
 
         files = data.get("files") or []
         if files:
@@ -299,7 +317,10 @@ class MainWindow(QtWidgets.QMainWindow):
             "include_subfolders": self.include_subfolders_check.isChecked(),
             "run_mode": self.run_mode_combo.currentText(),
             "delay_ms": int(self.delay_spin.value()),
-            "data_prefix": self.data_prefix_edit.text(),
+            "data_include_filename": self.data_filename_check.isChecked(),
+            "data_include_timestamp": self.data_timestamp_check.isChecked(),
+            "data_include_string": self.data_string_check.isChecked(),
+            "data_string_value": self.data_string_edit.text(),
             "files": self.selected_files,
             "api_key": self.api_key_value,
             "api_key_location": self.api_key_location_value,

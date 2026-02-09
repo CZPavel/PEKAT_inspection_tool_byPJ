@@ -30,7 +30,10 @@ pekat:
     max_backoff_sec: 10.0
   response_type: context
   context_in_body: false
-  data_prefix: ""
+  data_include_filename: true
+  data_include_timestamp: false
+  data_include_string: false
+  data_string_value: ""
   result_field: null
   health_ping_sec: 5.0
 
