@@ -174,6 +174,9 @@ class Runner:
 
     def _worker_loop(self) -> None:
         while not self.stop_event.is_set():
+            if self.status == "reconnecting":
+                time.sleep(1.0)
+                continue
             try:
                 task = self.queue.get(timeout=0.5)
             except queue.Empty:

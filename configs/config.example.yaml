@@ -1,4 +1,4 @@
-﻿mode: sdk
+mode: rest
 host: "127.0.0.1"
 port: 8000
 project_path: ""
@@ -17,7 +17,7 @@ input:
 
 behavior:
   run_mode: initial_then_watch
-  delay_between_images_ms: 0
+  delay_between_images_ms: 150
   queue_maxsize: 100
   max_workers: 1
   graceful_stop_timeout_sec: 10

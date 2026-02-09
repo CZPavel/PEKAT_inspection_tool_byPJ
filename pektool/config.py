@@ -40,7 +40,7 @@ class InputConfig(BaseModel):
 
 class BehaviorConfig(BaseModel):
     run_mode: Literal["loop", "once", "initial_then_watch"] = "initial_then_watch"
-    delay_between_images_ms: int = 0
+    delay_between_images_ms: int = 150
     queue_maxsize: int = 100
     max_workers: int = 1
     graceful_stop_timeout_sec: int = 10
@@ -80,7 +80,7 @@ class LoggingConfig(BaseModel):
 
 
 class AppConfig(BaseModel):
-    mode: Literal["sdk", "rest"] = "sdk"
+    mode: Literal["sdk", "rest"] = "rest"
     host: str = "127.0.0.1"
     port: int = 8000
     project_path: str = ""

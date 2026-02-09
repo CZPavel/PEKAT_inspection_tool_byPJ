@@ -1,6 +1,8 @@
 ﻿from __future__ import annotations
 
 import logging
+import threading
+import time
 from pathlib import Path
 from typing import List
 
@@ -24,20 +26,19 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.state = GuiState()
         self.selected_files: List[str] = []
+        self.stop_requested = False
+        self.stop_start_time: float | None = None
 
         self.tabs = QtWidgets.QTabWidget()
         self.setCentralWidget(self.tabs)
 
         self.config_tab = QtWidgets.QWidget()
-        self.run_tab = QtWidgets.QWidget()
         self.log_tab = QtWidgets.QWidget()
 
         self.tabs.addTab(self.config_tab, "Konfigurace")
-        self.tabs.addTab(self.run_tab, "Běh")
         self.tabs.addTab(self.log_tab, "Log")
 
         self._build_config_tab()
-        self._build_run_tab()
         self._build_log_tab()
 
         self.emitter = LogEmitter()
@@ -56,6 +57,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.mode_combo = QtWidgets.QComboBox()
         self.mode_combo.addItems(["sdk", "rest"])
+        self.mode_combo.setCurrentText("rest")
 
         self.host_edit = QtWidgets.QLineEdit("127.0.0.1")
         self.port_spin = QtWidgets.QSpinBox()
@@ -92,7 +94,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.delay_spin = QtWidgets.QSpinBox()
         self.delay_spin.setRange(0, 600000)
-        self.delay_spin.setValue(0)
+        self.delay_spin.setValue(150)
 
         self.data_prefix_edit = QtWidgets.QLineEdit("")
 
@@ -115,27 +117,27 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addRow("Data prefix", self.data_prefix_edit)
         layout.addRow("API key", self.api_key_button)
 
-    def _build_run_tab(self) -> None:
-        layout = QtWidgets.QVBoxLayout(self.run_tab)
-
         self.start_btn = QtWidgets.QPushButton("Start")
         self.stop_btn = QtWidgets.QPushButton("Stop")
         self.stop_btn.setEnabled(False)
+        self.start_btn.setMinimumHeight(44)
+        self.stop_btn.setMinimumHeight(44)
+        self.start_btn.setMinimumWidth(150)
+        self.stop_btn.setMinimumWidth(150)
 
         self.start_btn.clicked.connect(self._start)
         self.stop_btn.clicked.connect(self._stop)
-
-        self.status_label = QtWidgets.QLabel("Status: stopped")
-        self.count_label = QtWidgets.QLabel("Odesláno: 0")
 
         btn_layout = QtWidgets.QHBoxLayout()
         btn_layout.addWidget(self.start_btn)
         btn_layout.addWidget(self.stop_btn)
 
-        layout.addLayout(btn_layout)
-        layout.addWidget(self.status_label)
-        layout.addWidget(self.count_label)
-        layout.addStretch(1)
+        self.status_label = QtWidgets.QLabel("stopped")
+        self.count_label = QtWidgets.QLabel("0")
+
+        layout.addRow(btn_layout)
+        layout.addRow("Status", self.status_label)
+        layout.addRow("Odesláno", self.count_label)
 
     def _build_log_tab(self) -> None:
         layout = QtWidgets.QVBoxLayout(self.log_tab)
@@ -209,6 +211,8 @@ class MainWindow(QtWidgets.QMainWindow):
         runner = Runner(cfg, client, logger)
         runner.start()
 
+        self.stop_requested = False
+        self.stop_start_time = None
         self.state.runner = runner
         self.state.client = client
         self.start_btn.setEnabled(False)
@@ -216,22 +220,38 @@ class MainWindow(QtWidgets.QMainWindow):
         self.timer.start()
 
     def _stop(self) -> None:
-        if self.state.runner:
-            self.state.runner.stop()
-        if self.state.client:
-            self.state.client.stop()
-        self.start_btn.setEnabled(True)
+        if not self.state.runner:
+            return
+        self.stop_requested = True
+        self.stop_start_time = time.time()
         self.stop_btn.setEnabled(False)
-        self.timer.stop()
+        self.status_label.setText("stopping")
+
+        def _stop_worker() -> None:
+            if self.state.runner:
+                self.state.runner.stop()
+            if self.state.client:
+                self.state.client.stop()
+
+        threading.Thread(target=_stop_worker, daemon=True).start()
 
     def _update_status(self) -> None:
         runner = self.state.runner
         if not runner:
-            self.status_label.setText("Status: stopped")
-            self.count_label.setText("Odesláno: 0")
+            self.status_label.setText("stopped")
+            self.count_label.setText("0")
             return
-        self.status_label.setText(f"Status: {runner.get_status()}")
-        self.count_label.setText(f"Odesláno: {runner.get_count()}")
+        if self.stop_requested:
+            elapsed = int(time.time() - (self.stop_start_time or time.time()))
+            self.status_label.setText(f"stopping ({elapsed}s)")
+        else:
+            self.status_label.setText(runner.get_status())
+        self.count_label.setText(str(runner.get_count()))
+        if runner.get_status() == "stopped":
+            self.timer.stop()
+            self.start_btn.setEnabled(True)
+            self.stop_btn.setEnabled(False)
+            self.stop_requested = False
 
     def _append_log(self, message: str) -> None:
         self.log_view.append(message)
@@ -250,13 +270,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.host_edit.setText(data.get("host", "127.0.0.1"))
         self.port_spin.setValue(int(data.get("port", 8000)))
-        self.mode_combo.setCurrentText(data.get("mode", "sdk"))
+        self.mode_combo.setCurrentText(data.get("mode", "rest"))
         self.project_path_edit.setText(data.get("project_path", ""))
         self.start_mode_combo.setCurrentText(data.get("start_mode", "auto"))
         self.folder_edit.setText(data.get("folder", ""))
         self.include_subfolders_check.setChecked(bool(data.get("include_subfolders", True)))
         self.run_mode_combo.setCurrentText(data.get("run_mode", "initial_then_watch"))
-        self.delay_spin.setValue(int(data.get("delay_ms", 0)))
+        self.delay_spin.setValue(int(data.get("delay_ms", 150)))
         self.data_prefix_edit.setText(data.get("data_prefix", ""))
 
         files = data.get("files") or []
