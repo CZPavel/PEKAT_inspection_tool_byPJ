@@ -86,17 +86,28 @@ class RestClient(BaseClient):
         )
         response.raise_for_status()
 
-        context = self._parse_context(response, context_in_body)
+        context = self._parse_context(response, context_in_body, response_type)
         return context, None
 
-    def _parse_context(self, response: requests.Response, context_in_body: bool) -> Optional[Dict[str, Any]]:
+    def _parse_context(
+        self, response: requests.Response, context_in_body: bool, response_type: str
+    ) -> Optional[Dict[str, Any]]:
+        if response_type == "context":
+            try:
+                return response.json()
+            except ValueError:
+                return None
+
         if context_in_body:
-            image_len = int(response.headers.get("ImageLen", "0"))
+            image_len_str = response.headers.get("ImageLen")
+            if not image_len_str:
+                try:
+                    return response.json()
+                except ValueError:
+                    return None
+            image_len = int(image_len_str)
             payload = response.content
-            if image_len > 0:
-                context_bytes = payload[image_len:]
-            else:
-                context_bytes = payload
+            context_bytes = payload[image_len:]
             if not context_bytes:
                 return None
             try:
@@ -106,7 +117,10 @@ class RestClient(BaseClient):
 
         header = response.headers.get("ContextBase64utf")
         if not header:
-            return None
+            try:
+                return response.json()
+            except ValueError:
+                return None
         try:
             decoded = base64.b64decode(header)
             return json.loads(decoded.decode("utf-8"))

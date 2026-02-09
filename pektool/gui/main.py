@@ -270,7 +270,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.host_edit.setText(data.get("host", "127.0.0.1"))
         self.port_spin.setValue(int(data.get("port", 8000)))
-        self.mode_combo.setCurrentText(data.get("mode", "rest"))
+        self.mode_combo.setCurrentText("rest")
         self.project_path_edit.setText(data.get("project_path", ""))
         self.start_mode_combo.setCurrentText(data.get("start_mode", "auto"))
         self.folder_edit.setText(data.get("folder", ""))

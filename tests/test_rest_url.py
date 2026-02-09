@@ -16,5 +16,5 @@ def test_parse_context_header():
     response.status_code = 200
     response.headers["ContextBase64utf"] = encoded
 
-    context = client._parse_context(response, context_in_body=False)
+    context = client._parse_context(response, context_in_body=False, response_type="image")
     assert context == payload
