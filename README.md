@@ -1,8 +1,8 @@
-# PEKAT Inspection Tool
+ï»¿# PEKAT Inspection Tool
 
-Python aplikace (CLI + GUI) pro odesílání snímkù do PEKAT VISION 3.19.x pøes SDK nebo REST API.
+Python aplikace (CLI + GUI) pro odesÃ­lÃ¡nÃ­ snÃ­mkÅ¯ do PEKAT VISION 3.19.x pÅ™es SDK nebo REST API.
 
-## Požadavky
+## PoÅ¾adavky
 - Python 3.8+
 - PEKAT VISION 3.19.x
 - Windows 10/11 nebo Linux
@@ -16,21 +16,22 @@ pip install -e .
 ```
 
 ## Konfigurace
-Upravte `configs/config.example.yaml` podle svého prostøedí.
+Upravte `configs/config.example.yaml` podle svÃ©ho prostÅ™edÃ­.
+Pro REST autentizaci nastavte `rest.api_key`, `rest.api_key_location` a `rest.api_key_name`.
 
-## Spuštìní
+## SpuÅ¡tÄ›nÃ­
 ### CLI
-Batch zpracování složky:
+Batch zpracovÃ¡nÃ­ sloÅ¾ky:
 ```powershell
 pektool run --config configs/config.example.yaml
 ```
 
-Sledování nové produkce:
+SledovÃ¡nÃ­ novÃ© produkce:
 ```powershell
 pektool run --config configs/config.example.yaml --run-mode initial_then_watch
 ```
 
-Poslání vybraných souborù:
+PoslÃ¡nÃ­ vybranÃ½ch souborÅ¯:
 ```powershell
 pektool run --files D:\img\a.png D:\img\b.jpg
 ```
@@ -56,4 +57,5 @@ pektool-gui
 powershell -ExecutionPolicy Bypass -File scripts\build_pyinstaller.ps1
 ```
 
-Výstupy budou v `dist/`.
+VÃ½stupy budou v `dist/`.
+

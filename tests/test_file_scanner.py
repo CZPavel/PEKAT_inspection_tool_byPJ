@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 
 from pektool.io.file_scanner import FileScanner
 

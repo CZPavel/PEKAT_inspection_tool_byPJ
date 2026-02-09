@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 
 if (-not (Get-Command pyinstaller -ErrorAction SilentlyContinue)) {
     Write-Error "PyInstaller not found. Install it with: pip install pyinstaller"

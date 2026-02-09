@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import signal
 import time
@@ -174,3 +174,4 @@ def pm_list(
 
 if __name__ == "__main__":
     app()
+

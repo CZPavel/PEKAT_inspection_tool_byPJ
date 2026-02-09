@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 from typing import List, Literal, Optional
@@ -114,3 +114,4 @@ def save_config(config: AppConfig, path: Path) -> None:
 
 def resolve_path(path_value: str) -> Path:
     return Path(path_value).expanduser().resolve()
+

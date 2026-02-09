@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import queue
@@ -78,6 +78,7 @@ class Runner:
             snapshot = self._build_snapshot(scanner)
             while not self.stop_event.is_set():
                 self._enqueue_files(snapshot, loop=False)
+                time.sleep(self.config.input.poll_interval_sec)
         elif behavior.run_mode == "once":
             self._run_once(scanner)
         else:
@@ -161,6 +162,7 @@ class Runner:
                         continue
             if not loop:
                 break
+            time.sleep(self.config.input.poll_interval_sec)
 
     def _worker_loop(self) -> None:
         while not self.stop_event.is_set():
@@ -273,3 +275,4 @@ class Runner:
             )
 
         return _run()
+

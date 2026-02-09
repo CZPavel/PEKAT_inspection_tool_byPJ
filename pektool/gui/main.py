@@ -1,4 +1,4 @@
-from __future__ import annotations
+ï»¿from __future__ import annotations
 
 import logging
 from pathlib import Path
@@ -32,7 +32,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.log_tab = QtWidgets.QWidget()
 
         self.tabs.addTab(self.config_tab, "Konfigurace")
-        self.tabs.addTab(self.run_tab, "Bìh")
+        self.tabs.addTab(self.run_tab, "BÄ›h")
         self.tabs.addTab(self.log_tab, "Log")
 
         self._build_config_tab()
@@ -65,19 +65,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self.start_mode_combo.addItems(["auto", "connect_only", "always_start"])
 
         self.folder_edit = QtWidgets.QLineEdit("")
-        browse_btn = QtWidgets.QPushButton("Vybrat složku")
+        browse_btn = QtWidgets.QPushButton("Vybrat sloÅ¾ku")
         browse_btn.clicked.connect(self._select_folder)
 
         folder_layout = QtWidgets.QHBoxLayout()
         folder_layout.addWidget(self.folder_edit)
         folder_layout.addWidget(browse_btn)
 
-        self.include_subfolders_check = QtWidgets.QCheckBox("Zahrnout podsložky")
+        self.include_subfolders_check = QtWidgets.QCheckBox("Zahrnout podsloÅ¾ky")
         self.include_subfolders_check.setChecked(True)
 
         self.file_select_btn = QtWidgets.QPushButton("Vybrat soubory")
         self.file_select_btn.clicked.connect(self._select_files)
-        self.files_label = QtWidgets.QLabel("0 souborù")
+        self.files_label = QtWidgets.QLabel("0 souborÅ¯")
 
         files_layout = QtWidgets.QHBoxLayout()
         files_layout.addWidget(self.file_select_btn)
@@ -97,15 +97,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.api_key_location.addItems(["query", "header"])
         self.api_key_name = QtWidgets.QLineEdit("api_key")
 
-        layout.addRow("Režim (SDK/REST)", self.mode_combo)
+        layout.addRow("ReÅ¾im (SDK/REST)", self.mode_combo)
         layout.addRow("Host", self.host_edit)
         layout.addRow("Port", self.port_spin)
         layout.addRow("Project path", self.project_path_edit)
         layout.addRow("Start mode", self.start_mode_combo)
-        layout.addRow("Složka", folder_layout)
+        layout.addRow("SloÅ¾ka", folder_layout)
         layout.addRow("", self.include_subfolders_check)
         layout.addRow("Soubory", files_layout)
-        layout.addRow("Režim bìhu", self.run_mode_combo)
+        layout.addRow("ReÅ¾im bÄ›hu", self.run_mode_combo)
         layout.addRow("Prodleva (ms)", self.delay_spin)
         layout.addRow("Data prefix", self.data_prefix_edit)
         layout.addRow("API key", self.api_key_edit)
@@ -123,7 +123,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.stop_btn.clicked.connect(self._stop)
 
         self.status_label = QtWidgets.QLabel("Status: stopped")
-        self.count_label = QtWidgets.QLabel("Odesláno: 0")
+        self.count_label = QtWidgets.QLabel("OdeslÃ¡no: 0")
 
         btn_layout = QtWidgets.QHBoxLayout()
         btn_layout.addWidget(self.start_btn)
@@ -141,7 +141,7 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addWidget(self.log_view)
 
     def _select_folder(self) -> None:
-        folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Vyberte složku")
+        folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Vyberte sloÅ¾ku")
         if folder:
             self.folder_edit.setText(folder)
 
@@ -149,7 +149,7 @@ class MainWindow(QtWidgets.QMainWindow):
         files, _ = QtWidgets.QFileDialog.getOpenFileNames(self, "Vyberte soubory")
         if files:
             self.selected_files = files
-            self.files_label.setText(f"{len(files)} souborù")
+            self.files_label.setText(f"{len(files)} souborÅ¯")
 
     def _gather_config(self) -> AppConfig:
         cfg = AppConfig()
@@ -222,10 +222,10 @@ class MainWindow(QtWidgets.QMainWindow):
         runner = self.state.runner
         if not runner:
             self.status_label.setText("Status: stopped")
-            self.count_label.setText("Odesláno: 0")
+            self.count_label.setText("OdeslÃ¡no: 0")
             return
         self.status_label.setText(f"Status: {runner.get_status()}")
-        self.count_label.setText(f"Odesláno: {runner.get_count()}")
+        self.count_label.setText(f"OdeslÃ¡no: {runner.get_count()}")
 
     def _append_log(self, message: str) -> None:
         self.log_view.append(message)

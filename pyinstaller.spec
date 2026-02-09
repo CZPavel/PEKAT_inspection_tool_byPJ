@@ -1,4 +1,4 @@
-# -*- mode: python ; coding: utf-8 -*-
+﻿# -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
 block_cipher = None
@@ -62,3 +62,4 @@ gui_exe = EXE(
     name="pektool-gui",
     console=False,
 )
+
