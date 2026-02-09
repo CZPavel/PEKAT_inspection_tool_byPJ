@@ -63,6 +63,8 @@ class Runner:
         if input_cfg.source_type == "files":
             files = [Path(p) for p in input_cfg.files]
             self._enqueue_files(files, loop=behavior.run_mode == "loop")
+            if behavior.run_mode != "loop":
+                self._finalize_once()
             return
 
         folder = Path(input_cfg.folder)
@@ -81,6 +83,7 @@ class Runner:
                 time.sleep(self.config.input.poll_interval_sec)
         elif behavior.run_mode == "once":
             self._run_once(scanner)
+            self._finalize_once()
         else:
             self._run_initial_then_watch(scanner)
 
@@ -163,6 +166,11 @@ class Runner:
             if not loop:
                 break
             time.sleep(self.config.input.poll_interval_sec)
+
+    def _finalize_once(self) -> None:
+        if not self.stop_event.is_set():
+            self.queue.join()
+            self.stop_event.set()
 
     def _worker_loop(self) -> None:
         while not self.stop_event.is_set():
