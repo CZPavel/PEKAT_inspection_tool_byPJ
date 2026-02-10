@@ -46,7 +46,11 @@ Aplikace je rozdelena na ctyri vrstvy:
   - `start:<project_path>`
   - `stop:<project_path>`
   - `status:<project_path>`
-- Odpovedi se ocekavaji dle dokumentace PM (done, running, stopped, ...)
+  - `switch:<project_path>`
+- Podporuje optional request_id ve formatu `<id>.<command>:<project_path>`
+- Odpovedi mohou obsahovat prefix `<id>.` (ten se odstrani)
+- Ocekavane odpovedi: `done`, `running`, `stopped`, `starting`, `stopping`, `success`, `error:port`, `not-found`
+- Chybne prikazy vraci `Unknown command` nebo `invalid-command` (server zavisi na verzi)
 
 ## Tok dat (zjednodusene)
 
