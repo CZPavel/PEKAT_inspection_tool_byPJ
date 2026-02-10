@@ -32,12 +32,29 @@ class TCPController:
     @staticmethod
     def _is_invalid(response: str) -> bool:
         lower = response.lower()
-        return "invalid-command" in lower or "unknown command" in lower
+        return "invalid-command" in lower or "unknown command" in lower or "unknown-command" in lower
+
+    @staticmethod
+    def _normalize_response(response: str) -> tuple[str, bool]:
+        cleaned = response.strip()
+        cleaned = TCPController._strip_request_id(cleaned)
+        lowered = cleaned.lower()
+        if lowered.startswith("suc:"):
+            return cleaned[4:], False
+        if lowered.startswith("err:"):
+            return cleaned[4:], True
+        return cleaned, False
 
     def send(self, command: str, project_path: str) -> str:
-        base = f"{command}:{project_path}"
+        base_pipe = f"{command}|{project_path}"
+        base_colon = f"{command}:{project_path}"
         request_id = self._next_request_id()
-        candidates = [base, f"{request_id}.{base}"]
+        candidates = [
+            base_pipe,
+            f"{request_id}.{base_pipe}",
+            base_colon,
+            f"{request_id}.{base_colon}",
+        ]
         payloads = []
         for candidate in candidates:
             payloads.extend(
@@ -49,15 +66,23 @@ class TCPController:
             )
         last_response = ""
         for payload in payloads:
-            with socket.create_connection((self.host, self.port), timeout=self.timeout_sec) as sock:
-                sock.sendall(payload.encode("utf-8"))
-                sock.settimeout(self.timeout_sec)
-                response = sock.recv(64)
+            try:
+                with socket.create_connection((self.host, self.port), timeout=self.timeout_sec) as sock:
+                    sock.sendall(payload.encode("utf-8"))
+                    sock.settimeout(self.timeout_sec)
+                    response = sock.recv(64)
+            except socket.timeout:
+                return "timeout"
             raw_response = response.decode("utf-8", errors="ignore").strip()
-            cleaned = self._strip_request_id(raw_response)
-            last_response = cleaned
-            if not raw_response or self._is_invalid(raw_response):
+            if not raw_response:
+                last_response = ""
                 continue
+            cleaned, is_error = self._normalize_response(raw_response)
+            last_response = cleaned
+            if self._is_invalid(raw_response):
+                continue
+            if is_error:
+                return cleaned
             return cleaned
         return last_response
 

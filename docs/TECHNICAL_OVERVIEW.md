@@ -43,14 +43,13 @@ Aplikace je rozdelena na ctyri vrstvy:
 
 ### `pektool/clients/tcp_controller.py`
 - TCP prikazy pro Projects Manager:
-  - `start:<project_path>`
-  - `stop:<project_path>`
-  - `status:<project_path>`
-  - `switch:<project_path>`
-- Podporuje optional request_id ve formatu `<id>.<command>:<project_path>`
-- Odpovedi mohou obsahovat prefix `<id>.` (ten se odstrani)
-- Ocekavane odpovedi: `done`, `running`, `stopped`, `starting`, `stopping`, `success`, `error:port`, `not-found`
-- Chybne prikazy vraci `Unknown command` nebo `invalid-command` (server zavisi na verzi)
+  - preferovany format (3.19.3, overeno): `command|<project_path>` (napr. `status|C:\Path`)
+  - fallback format dle starsi dokumentace: `command:<project_path>`
+  - `switch` je podporovan, pokud ho PM implementuje
+- Podporuje optional request_id ve formatu `<id>.<command>|<project_path>` nebo `<id>.<command>:<project_path>`
+- Odpovedi mohou obsahovat prefix `suc:` nebo `err:` a volitelne `<id>.` (odstrani se)
+- Ocekavane odpovedi: `running`, `stopped`, `starting`, `stopping`, `done`, `success`, `error:port`, `not-found`
+- Chybne prikazy vraci `err:invalid-command` (nebo `Unknown command` dle verze)
 
 ## Tok dat (zjednodusene)
 
