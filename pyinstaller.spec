@@ -34,6 +34,7 @@ cli_exe = EXE(
     cli_analysis.datas,
     name="pektool",
     console=True,
+    exclude_binaries=True,
 )
 
 
@@ -61,5 +62,18 @@ gui_exe = EXE(
     gui_analysis.datas,
     name="pektool-gui",
     console=False,
+    exclude_binaries=True,
+)
+
+coll = COLLECT(
+    cli_exe,
+    gui_exe,
+    cli_analysis.binaries,
+    cli_analysis.zipfiles,
+    cli_analysis.datas,
+    gui_analysis.binaries,
+    gui_analysis.zipfiles,
+    gui_analysis.datas,
+    name="PEKAT_Inspection_tool_by_PJ",
 )
 
