@@ -11,7 +11,7 @@ binaries = pyside6[1]
 
 
 cli_analysis = Analysis(
-    ["pektool/cli.py"],
+    ["entry_cli.py"],
     pathex=["."],
     binaries=binaries,
     datas=datas,
@@ -39,7 +39,7 @@ cli_exe = EXE(
 
 
 gui_analysis = Analysis(
-    ["pektool/gui/main.py"],
+    ["entry_gui.py"],
     pathex=["."],
     binaries=binaries,
     datas=datas,
