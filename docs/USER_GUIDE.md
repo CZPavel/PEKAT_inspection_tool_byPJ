@@ -47,6 +47,7 @@ Tento dokument popisuje ovladani aplikace z pohledu uzivatele.
   - `Automatic restart` - pri odmitnuti pripojeni stop/start + retry
 
 Poznamka: Funguje pouze pokud je TCP server v Projects Manageru aktivni.
+Poznamka 2: `start/stop` nekdy nevraci odpoved (timeout). Aplikace to bere jako pending a kontroluje stav pres `status`.
 
 ### 10) Tlacitka
 - **Connect**: pripoji se k bezicimu projektu

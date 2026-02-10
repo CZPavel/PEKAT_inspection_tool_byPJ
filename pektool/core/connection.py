@@ -176,7 +176,10 @@ class ConnectionManager:
                 port=self.config.projects_manager.tcp_port,
             )
             response = controller.start(self.config.project_path)
-            self.logger.info("PM start response: %s", response)
+            if response == "timeout":
+                self.logger.info("PM start pending (no response). Waiting for status.")
+            else:
+                self.logger.info("PM start response: %s", response)
             self._wait_pm_status(controller, target="running", timeout=30)
         except Exception as exc:
             self.logger.warning("PM start failed: %s", exc)
@@ -190,7 +193,10 @@ class ConnectionManager:
                 port=self.config.projects_manager.tcp_port,
             )
             response = controller.stop(self.config.project_path)
-            self.logger.info("PM stop response: %s", response)
+            if response == "timeout":
+                self.logger.info("PM stop pending (no response). Waiting for status.")
+            else:
+                self.logger.info("PM stop response: %s", response)
             self._wait_pm_status(controller, target="stopped", timeout=30)
         except Exception as exc:
             self.logger.warning("PM stop failed: %s", exc)

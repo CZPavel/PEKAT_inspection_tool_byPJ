@@ -50,6 +50,7 @@ Aplikace je rozdelena na ctyri vrstvy:
 - Odpovedi mohou obsahovat prefix `suc:` nebo `err:` a volitelne `<id>.` (odstrani se)
 - Ocekavane odpovedi: `running`, `stopped`, `starting`, `stopping`, `done`, `success`, `error:port`, `not-found`
 - Chybne prikazy vraci `err:invalid-command` (nebo `Unknown command` dle verze)
+- `start`/`stop` nekdy nevraci odpoved (timeout). Aplikace to bere jako pending a dale polluje `status`.
 
 ## Tok dat (zjednodusene)
 
