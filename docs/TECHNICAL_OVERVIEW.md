@@ -1,109 +1,108 @@
-# PEKAT Inspection Tool - Technical Overview
+﻿# PEKAT Inspection Tool - Technical Overview (V03)
 
-Tento dokument popisuje technickou architekturu aplikace, tok dat a volani do PEKAT VISION.
+This document describes architecture and runtime behavior of the tool.
 
-## Prehled architektury
+## Architecture
 
-Aplikace je rozdelena na ctyri vrstvy:
+The app is split into four layers:
 
-1. GUI/CLI vrstva - ovladani, validace vstupu, ulozeni nastaveni
-2. Connection Manager - rizeni pripojeni, ping, PM TCP akce, stav pripojeni
-3. Runner - skenovani souboru, fronta, odesilani snimku
-4. Klienti - REST/SDK/TCP
+1. UI/CLI layer - input, validation, persistence
+2. Connection layer - connect, ping, PM TCP control, runtime stats
+3. Runner layer - file scan, queue, analyze pipeline
+4. Client layer - REST, SDK, PM TCP
 
-## Moduly a odpovednosti
+## Core Modules
 
 ### `pektool/core/connection.py`
-- Stav pripojeni: `disconnected | connecting | connected | reconnecting | error | disconnecting`
-- Vytvari klienta (REST/SDK), provadi `ping`
-- PM TCP ovladani (start/stop/status) dle policy
-- Automatic restart: stop -> start -> cekani 30s -> ping (max 5 pokusu)
-- Uklada `last_context`, `last_production_mode`, `last_data`
-- Uklada `total_sent` + `sent_list` (poslane soubory)
+- Connection states: `disconnected | connecting | connected | reconnecting | error | disconnecting`
+- Builds REST or SDK client and executes health checks
+- PM TCP policies: `off | auto_start | auto_start_stop | auto_restart`
+- Stores runtime counters:
+  - `total_sent`
+  - `total_evaluated`
+  - `ok_count`
+  - `nok_count`
+  - `last_eval_time_ms`
+  - `avg_eval_time_ms`
+  - `last_result_json`
+- `reset_counters()` resets all counters and JSON snapshot
 
 ### `pektool/core/runner.py`
-- Skenuje slozku (polling) a plni frontu
-- Odesila snimky pres `ConnectionManager.client`
-- Neni-li pripojeno, ceka (zadne odesilani)
-- Loguje hodnotu `data` a vysledek do JSONL
+- Polls files, enqueues tasks, processes queue
+- Sends image + `data` into PEKAT
+- Normalizes context evaluation result for UI/logs
+- Writes JSONL per image with status and evaluation details
+
+### `pektool/core/context_eval.py`
+- Converts PEKAT context into normalized evaluation object
+- Primary OK/NOK source:
+  - `context.result` when `pekat.oknok_source=context_result`
+- Fallback source:
+  - `pekat.result_field` path in context
+- Time source:
+  - `context.completeTime` (seconds) -> `complete_time_ms`
+  - fallback to measured client latency
+- Detection summary:
+  - `detected_count = len(context.detectedRectangles)` when list is present
 
 ### `pektool/clients/rest_client.py`
-- REST endpointy:
-  - `GET /ping`
-  - `POST /analyze_image` s PNG bytes
-- Podporuje `data` jako URL parametr
-- Pokud vstup neni PNG, provede konverzi pres OpenCV -> PNG
-- Parsovani odpovedi:
+- Analyze endpoints:
+  - `POST /analyze_image` for PNG/file/bytes
+  - `POST /analyze_raw_image?height=&width=` for numpy arrays
+- Optional URL params:
+  - `response_type`
+  - `data`
+  - `context_in_body`
+- Context parsing modes:
   - `response_type=context` -> `response.json()`
-  - jinak `ContextBase64utf` nebo `ImageLen` pri `context_in_body`
-
-### `pektool/clients/sdk_client.py`
-- SDK instance `Instance(...).analyze(...)`
-- `data` je poslano pres argument `data=`
+  - `context_in_body=false` -> `ContextBase64utf`
+  - `context_in_body=true` -> split body using `ImageLen`
+  - fallback to `response.json()` when image/context headers are missing
+- Utility endpoints used:
+  - `GET /ping`
 
 ### `pektool/clients/tcp_controller.py`
-- TCP prikazy pro Projects Manager:
-  - preferovany format (3.19.3, overeno): `command|<project_path>` (napr. `status|C:\Path`)
-  - fallback format dle starsi dokumentace: `command:<project_path>`
-  - `switch` je podporovan, pokud ho PM implementuje
-- Podporuje optional request_id ve formatu `<id>.<command>|<project_path>` nebo `<id>.<command>:<project_path>`
-- Odpovedi mohou obsahovat prefix `suc:` nebo `err:` a volitelne `<id>.` (odstrani se)
-- Ocekavane odpovedi: `running`, `stopped`, `starting`, `stopping`, `done`, `success`, `error:port`, `not-found`
-- Chybne prikazy vraci `err:invalid-command` (nebo `Unknown command` dle verze)
-- `start`/`stop` nekdy nevraci odpoved (timeout). Aplikace to bere jako pending a dale polluje `status`.
+- Projects Manager TCP commands with preferred syntax:
+  - `command|<project_path>`
+- Supports legacy fallback:
+  - `command:<project_path>`
+- Handles `suc:` / `err:` response prefixes
 
-## Tok dat (zjednodusene)
+## Data Flow
 
-1. GUI/CLI sestavi `AppConfig`
-2. ConnectionManager vytvori klienta a provede `ping`
-3. Runner skenuje slozku -> fronta
-4. Worker odesila obrazek + `data` pres REST/SDK
-5. Po uspechu ulozi:
-   - `last_context`
-   - `Production_Mode` indikaci
-   - `last_data`
-6. JSONL log + text log
+1. UI/CLI builds `AppConfig`
+2. `ConnectionManager.connect()` initializes client and verifies connectivity
+3. `Runner` scans files and enqueues `ImageTask`
+4. Worker sends image and receives context
+5. Context is normalized (`context_eval`)
+6. Runtime counters and JSON snapshot are updated
+7. JSONL and text logs are written
 
-## Sestaveni `data`
+## V03 GUI Feedback Data
 
-`data` se sklada z volitelnych casti:
-- `Include string` -> uzivatelsky prefix
-- `Include filename` -> `path.stem`
-- `Include timestamp` -> `_HH_MM_SS_`
+Displayed values:
+- `Odeslano` -> `total_sent`
+- `Posledni vyhodnoceni (ms)` -> `last_eval_time_ms`
+- `Prumerny cas (ms)` -> `avg_eval_time_ms`
+- `OK` and `NOK` counters
+- Full JSON of last processed image in dedicated `JSON` tab
 
-Vysledny `data` je vzdy jeden retezec bez oddelovacu (krome timestampu).
+## Config Notes
 
-## Production Mode indikace
+Important keys in `configs/config.example.yaml`:
+- `pekat.oknok_source: context_result | result_field`
+- `pekat.result_field` (fallback path)
+- `pekat.response_type`, `pekat.context_in_body`
+- PM TCP settings under `projects_manager` and `connection`
 
-Z posledniho uspesneho `context` se cte `Production_Mode`:
-- `True` -> ON
-- `False` -> OFF
-- neni k dispozici -> Unknown
+## Logging
 
-## PM TCP policy
+- `logs/app.log` for system/runtime messages
+- `logs/results.jsonl` for per-image records containing:
+  - status, latency, eval_status, result_bool, complete_time, detected_count
 
-`connection.policy`:
-- `off`: pouze status/ping
-- `auto_start`: startuje projekt pri Connect
-- `auto_start_stop`: startuje pri Connect a stopuje pri Disconnect
-- `auto_restart`: pri odmitnuti pripojeni stop/start + retry (5x, 30s)
+## Constraints
 
-TCP policy funguje jen kdyz:
-- `projects_manager.tcp_enabled = true`
-- `project_path` neni prazdny
-
-## Logy
-
-- `logs/app.log`: systemove logy + odesilane `data`
-- `logs/results.jsonl`: per-image zaznamy (timestamp, filename, data, status, ok_nok)
-
-## Konfigurace
-
-Zakladni config je v `configs/config.example.yaml`.
-GUI si uklada posledni nastaveni do `~/.pektool_gui.yaml`.
-
-## Omezeni
-
-- `data` je interni argument projektu a v REST odpovedi se bezne nevraci.
-- Project Manager HTTP (port 7000) poskytuje list/status, ne start/stop.
-- PM TCP musi byt aktivni v Projects Manager Settings.
+- `data` is internal PEKAT argument and usually is not returned by REST response
+- PM HTTP (`7000`) provides list/status, not start/stop
+- PM TCP control works only if TCP server is enabled in Projects Manager

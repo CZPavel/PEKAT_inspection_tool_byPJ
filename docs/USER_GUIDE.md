@@ -1,85 +1,98 @@
-# PEKAT Inspection Tool - Uzivatelsky navod
+﻿# PEKAT Inspection Tool - User Guide (V03)
 
-Tento dokument popisuje ovladani aplikace z pohledu uzivatele.
+This guide describes GUI controls and runtime indicators.
 
-## Hlavni okno (Konfigurace)
+## Main Tab: Konfigurace
 
-### 1) Rezim (SDK/REST)
-- `REST` je default
-- `SDK` pouzijte pouze pokud bezi lokalne s dostupnym SDK
+### 1) Mode (SDK/REST)
+- Default: `REST`
+- Use `SDK` only when SDK runtime is available and intended
 
 ### 2) Host / Port
-- IP adresa a port beziciho projektu
-- Default: `127.0.0.1` / `8000`
+- Target project host and port
+- Default: `127.0.0.1` and `8000`
 
 ### 3) Project path
-- Cesta k projektu (potrebna pouze pro PM TCP rizeni)
+- Required only for PM TCP project control
 
-### 4) Slozka / Podslozky / Soubory
-- **Slozka**: hlavni vstupni slozka
-- **Zahrnout podslozky**: zda skenovat i podadresare
-- **Vybrat soubory**: lze odeslat konkretni soubory
+### 4) Input source
+- `Slozka` for folder mode
+- `Zahrnout podslozky` for recursive scan
+- `Vybrat soubory` for fixed file list mode
 
-### 5) Rezim behu
-- `loop`: dokola pres snapshot souboru
-- `once`: jednorazove a konec
-- `initial_then_watch`: posle aktualni a pak sleduje nove
+### 5) Run mode
+- `loop`: loop over initial snapshot
+- `once`: process once and stop
+- `initial_then_watch`: process current files, then only new files
 
-### 6) Prodleva (ms)
-- Pauza mezi odesilanymi snimky
+### 6) Delay
+- `Prodleva (ms)` is delay between sends
 
-### 7) Data (co se posila do PEKAT jako `data`)
-- **Include filename**: nazev souboru bez pripony
-- **Include timestamp**: prida `_HH_MM_SS_`
-- **Include string**: povoli vlastni text
+### 7) Data payload options
+- `Include filename`
+- `Include timestamp`
+- `Include string`
 
-### 8) API key
-- Tlacitko **API key setup** otevre dialog pro nastaveni
-- Ponechte prazdne, pokud projekt neni zabezpeceny
+Result is sent as a single `data` string in REST/SDK analyze call.
+
+### 8) API key setup
+- Open dialog with `API key setup`
+- Keep empty if secure analyze is not enabled in project
 
 ### 9) Project control (PM TCP)
-- **PM TCP enabled**: zapne TCP rizeni projektu
-- **Host / Port**: TCP server Projects Manageru (typicky 7002)
-- **Policy**:
-  - `Off (status only)` - pouze status/ping
-  - `Auto-start on Connect` - start pri Connect
-  - `Auto-start + Auto-stop on Disconnect` - start/stop
-  - `Automatic restart` - pri odmitnuti pripojeni stop/start + retry
+- `PM TCP enabled`
+- PM host/port (typically `7002`)
+- Policy:
+  - `Off (status only)`
+  - `Auto-start on Connect`
+  - `Auto-start + Auto-stop on Disconnect`
+  - `Automatic restart`
 
-Poznamka: Funguje pouze pokud je TCP server v Projects Manageru aktivni.
-Poznamka 2: `start/stop` nekdy nevraci odpoved (timeout). Aplikace to bere jako pending a kontroluje stav pres `status`.
+Notes:
+- Works only when PM TCP server is enabled in Projects Manager settings.
+- `start/stop` may return no immediate response (timeout); app tracks state through `status`.
 
-### 10) Tlacitka
-- **Connect**: pripoji se k bezicimu projektu
-- **Disconnect**: odpoji se
-- **Start sending**: zahaji odesilani snimku (vyzaduje Connect)
-- **Stop sending**: zastavi odesilani
+### 10) Control buttons
+- `Connect`
+- `Disconnect`
+- `Start sending`
+- `Stop sending`
 
-### 11) Indikatory
-- **Connection**: stav pripojeni (connected/reconnecting/error)
-- **Sending**: stav odesilani
-- **Production Mode**:
-  - ON -> projekt bezi v production rezimu
-  - OFF -> projekt neni v production rezimu
-  - Unknown -> zatim nebyl zadny validni context
-- **Data preview**: posledni odeslany `data` string
-- **Odeslano**: pocet odeslanych snimku
-- **Reset counter and list**: rucne resetuje pocitadlo
+## Runtime Indicators
 
-## Log zalozka
+- `Connection`: current connection state
+- `Sending`: sender state
+- `Production Mode`: ON/OFF/Unknown from last context
+- `Data preview`: last sent `data`
+- `Odeslano`: total sent images
+- `Posledni vyhodnoceni (ms)`: time of last evaluated image
+- `Prumerny cas (ms)`: average evaluation time
+- `NOK` and `OK`: large counters in bottom panel
 
-- Zobrazuje prubezny log aplikace
-- Dulezite udalosti: pripojeni, restart, odesilani, chyby
+## Tabs
 
-## Doporuceny postup
+- `Log`: runtime log stream
+- `JSON`: full JSON of last processed image context (or last error payload)
 
-1. Nastavit Host/Port
-2. Pokud pouzivate PM TCP, vyplnit Project path a zapnout PM TCP
-3. Kliknout **Connect**
-4. Kliknout **Start sending**
+## Reset
 
-## Tipy
+`Reset counter and list` resets all runtime counters:
+- sent count
+- last/average evaluation time
+- OK/NOK counters
+- sent list
+- JSON snapshot (to default state)
 
-- Pokud se objevuje `reconnecting`, overte, ze projekt opravdu bezi na danem portu.
-- Pro PM TCP funkce musi byt aktivni TCP server v Projects Manageru.
-- `data` se nevraci v REST odpovedi - je dostupna uvnitr projektu (Code module).
+## Recommended Workflow
+
+1. Configure host/port and input
+2. Optional: configure PM TCP + policy
+3. Click `Connect`
+4. Click `Start sending`
+5. Monitor `Log`, `JSON`, and counters
+
+## Troubleshooting
+
+- If reconnect loops appear, verify project is running on expected host/port.
+- For PM control issues, verify PM TCP is enabled and project path is valid.
+- `data` is internal project argument; it is used inside PEKAT flow and is not usually returned in REST response.
