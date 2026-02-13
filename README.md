@@ -28,6 +28,7 @@ Important V03 evaluation options:
 - `pekat.result_field` (fallback)
 - `pekat.response_type`
 - `pekat.context_in_body`
+- `behavior.run_mode: loop | once | initial_then_watch | just_watch`
 
 Note:
 - `data` is internal PEKAT argument used inside project flow.

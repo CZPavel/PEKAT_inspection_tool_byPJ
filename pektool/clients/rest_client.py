@@ -12,6 +12,8 @@ from .base import BaseClient
 
 
 class RestClient(BaseClient):
+    """REST transport for PEKAT analyze endpoints."""
+
     def __init__(
         self,
         host: str,
@@ -74,6 +76,7 @@ class RestClient(BaseClient):
             else:
                 payload = encode_png(load_image_cv(path))
         elif BaseClient.is_numpy(image):
+            # Raw mode requires explicit dimensions in URL.
             shape = image.shape
             if len(shape) < 2:
                 raise ValueError("Raw numpy image must have height and width")
@@ -110,6 +113,7 @@ class RestClient(BaseClient):
                 return None
 
         if context_in_body:
+            # Image bytes + context JSON are concatenated in body; ImageLen splits them.
             image_len_str = response.headers.get("ImageLen")
             if not image_len_str:
                 try:
@@ -129,6 +133,7 @@ class RestClient(BaseClient):
             except json.JSONDecodeError:
                 return None
 
+        # Default non-body mode transports context via header.
         header = response.headers.get("ContextBase64utf") or response.headers.get("ContextBase64utg")
         if not header:
             try:

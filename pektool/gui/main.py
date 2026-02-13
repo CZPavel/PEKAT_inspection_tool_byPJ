@@ -18,6 +18,8 @@ from .widgets import LogEmitter, QtLogHandler
 
 
 class MainWindow(QtWidgets.QMainWindow):
+    """Main GUI window for configuration, control and live feedback."""
+
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("PEKAT Inspection Tool")
@@ -90,8 +92,22 @@ class MainWindow(QtWidgets.QMainWindow):
         files_layout.addWidget(self.files_label)
 
         self.run_mode_combo = QtWidgets.QComboBox()
-        self.run_mode_combo.addItems(["loop", "once", "initial_then_watch"])
-        self.run_mode_combo.setCurrentText("initial_then_watch")
+        run_modes = [
+            ("Loop (Nacita snimky k vyhodnoceni stale dokola)", "loop"),
+            ("Once (Odesle postupne vsechny snimky k vyhodnoceni jen jednou)", "once"),
+            (
+                "Send ALL Once and Watch (Odesle vsechny snimky jednou a pak ceka na dalsi)",
+                "initial_then_watch",
+            ),
+            (
+                "Just Watch (Ignoruje stavajici snimky a ceka jen na nove)",
+                "just_watch",
+            ),
+        ]
+        for index, (label, value) in enumerate(run_modes):
+            self.run_mode_combo.addItem(label, value)
+            self.run_mode_combo.setItemData(index, label, QtCore.Qt.ToolTipRole)
+        self._set_run_mode_combo("initial_then_watch")
 
         self.delay_spin = QtWidgets.QSpinBox()
         self.delay_spin.setRange(0, 600000)
@@ -254,6 +270,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.files_label.setText(f"{len(files)} souborů")
 
     def _gather_config(self) -> AppConfig:
+        # Build runtime config from current GUI form state.
         cfg = AppConfig()
         cfg.mode = self.mode_combo.currentText()
         cfg.host = self.host_edit.text().strip() or "127.0.0.1"
@@ -267,7 +284,7 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             cfg.input.source_type = "folder"
 
-        cfg.behavior.run_mode = self.run_mode_combo.currentText()
+        cfg.behavior.run_mode = str(self.run_mode_combo.currentData() or "initial_then_watch")
         cfg.behavior.delay_between_images_ms = int(self.delay_spin.value())
         cfg.pekat.data_include_filename = self.data_filename_check.isChecked()
         cfg.pekat.data_include_timestamp = self.data_timestamp_check.isChecked()
@@ -356,6 +373,7 @@ class MainWindow(QtWidgets.QMainWindow):
         threading.Thread(target=_stop_worker, daemon=True).start()
 
     def _update_status(self) -> None:
+        # UI refresh tick driven by timer.
         connection = self.state.connection
         runner = self.state.runner
 
@@ -457,6 +475,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.pm_note_label.setText("")
 
     def _sync_controls(self) -> None:
+        # Enable/disable widgets based on connection and sender states.
         connection = self.state.connection
         runner = self.state.runner
         connected = bool(connection and connection.is_connected())
@@ -500,8 +519,16 @@ class MainWindow(QtWidgets.QMainWindow):
         if not (connected or connecting):
             self._update_pm_controls()
         self.data_string_edit.setEnabled(self.data_string_check.isChecked() and not sending)
+
     def _gui_config_path(self) -> Path:
         return Path.home() / ".pektool_gui.yaml"
+
+    def _set_run_mode_combo(self, run_mode: str) -> None:
+        for idx in range(self.run_mode_combo.count()):
+            if self.run_mode_combo.itemData(idx) == run_mode:
+                self.run_mode_combo.setCurrentIndex(idx)
+                return
+        self.run_mode_combo.setCurrentIndex(2)
 
     def _load_gui_settings(self) -> None:
         path = self._gui_config_path()
@@ -518,7 +545,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.project_path_edit.setText(data.get("project_path", ""))
         self.folder_edit.setText(data.get("folder", ""))
         self.include_subfolders_check.setChecked(bool(data.get("include_subfolders", True)))
-        self.run_mode_combo.setCurrentText(data.get("run_mode", "initial_then_watch"))
+        self._set_run_mode_combo(str(data.get("run_mode", "initial_then_watch")))
         self.delay_spin.setValue(int(data.get("delay_ms", 150)))
         self.data_filename_check.setChecked(bool(data.get("data_include_filename", True)))
         self.data_timestamp_check.setChecked(bool(data.get("data_include_timestamp", False)))
@@ -552,7 +579,7 @@ class MainWindow(QtWidgets.QMainWindow):
             "project_path": self.project_path_edit.text().strip(),
             "folder": self.folder_edit.text().strip(),
             "include_subfolders": self.include_subfolders_check.isChecked(),
-            "run_mode": self.run_mode_combo.currentText(),
+            "run_mode": str(self.run_mode_combo.currentData() or "initial_then_watch"),
             "delay_ms": int(self.delay_spin.value()),
             "data_include_filename": self.data_filename_check.isChecked(),
             "data_include_timestamp": self.data_timestamp_check.isChecked(),

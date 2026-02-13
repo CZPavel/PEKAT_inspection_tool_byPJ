@@ -17,6 +17,8 @@ from ..types import AnalyzeResult, ImageTask, NormalizedEvaluation
 
 
 class Runner:
+    """File producer + analyze worker pipeline."""
+
     def __init__(self, config: AppConfig, connection: ConnectionManager, logger) -> None:
         self.config = config
         self.connection = connection
@@ -55,11 +57,15 @@ class Runner:
         return self.connection.total_sent
 
     def _scanner_loop(self) -> None:
+        # Producer side: build tasks according to selected run mode.
         input_cfg = self.config.input
         behavior = self.config.behavior
 
         if input_cfg.source_type == "files":
             files = [Path(p) for p in input_cfg.files]
+            if behavior.run_mode == "just_watch":
+                # "Just watch" has no meaning for fixed file list mode.
+                self.logger.warning("Run mode 'just_watch' is not compatible with source_type=files; using once.")
             self._enqueue_files(files, loop=behavior.run_mode == "loop")
             if behavior.run_mode != "loop":
                 self._finalize_once()
@@ -75,14 +81,20 @@ class Runner:
         )
 
         if behavior.run_mode == "loop":
+            # Freeze current stable file set and keep replaying it.
             snapshot = self._build_snapshot(scanner)
             while not self.stop_event.is_set():
                 self._enqueue_files(snapshot, loop=False)
                 time.sleep(self.config.input.poll_interval_sec)
         elif behavior.run_mode == "once":
+            # Process existing stable files only once.
             self._run_once(scanner)
             self._finalize_once()
+        elif behavior.run_mode == "just_watch":
+            # Ignore files present at startup and process only newly appearing ones.
+            self._run_just_watch(scanner, folder)
         else:
+            # Process current files once, then keep watching for new files.
             self._run_initial_then_watch(scanner)
 
     def _build_snapshot(self, scanner: FileScanner) -> List[Path]:
@@ -141,6 +153,29 @@ class Runner:
                 self._enqueue_files(new_files, loop=False)
             scanner.wait(self.config.input.poll_interval_sec)
 
+    def _run_just_watch(self, scanner: FileScanner, folder: Path) -> None:
+        seen: Set[Path] = self._collect_existing_paths(folder)
+        while not self.stop_event.is_set():
+            ready = scanner.scan()
+            new_files = [path for path in ready if path not in seen]
+            if new_files:
+                seen.update(new_files)
+                self._enqueue_files(new_files, loop=False)
+            scanner.wait(self.config.input.poll_interval_sec)
+
+    def _collect_existing_paths(self, folder: Path) -> Set[Path]:
+        # Collect startup snapshot so "just_watch" ignores pre-existing files.
+        include_subfolders = self.config.input.include_subfolders
+        extensions = {ext.lower() for ext in self.config.input.extensions}
+        if not folder.exists():
+            return set()
+        iterator = folder.rglob("*") if include_subfolders else folder.glob("*")
+        paths: Set[Path] = set()
+        for path in iterator:
+            if path.is_file() and path.suffix.lower() in extensions:
+                paths.add(path)
+        return paths
+
     def _enqueue_files(self, files: List[Path], loop: bool) -> None:
         if not files:
             if loop:
@@ -171,6 +206,7 @@ class Runner:
             self.stop_event.set()
 
     def _worker_loop(self) -> None:
+        # Consumer side: process queued tasks sequentially to avoid PEKAT overload.
         while not self.stop_event.is_set():
             if not self.connection.is_connected():
                 time.sleep(1.0)

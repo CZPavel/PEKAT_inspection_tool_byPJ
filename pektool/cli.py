@@ -36,7 +36,7 @@ def run(
     host: Optional[str] = typer.Option(None, "--host"),
     port: Optional[int] = typer.Option(None, "--port"),
     include_subfolders: Optional[bool] = typer.Option(None, "--include-subfolders/--no-include-subfolders"),
-    run_mode: Optional[str] = typer.Option(None, "--run-mode", help="loop|once|initial_then_watch"),
+    run_mode: Optional[str] = typer.Option(None, "--run-mode", help="loop|once|initial_then_watch|just_watch"),
     data_prefix: Optional[str] = typer.Option(None, "--data-prefix", help="Legacy prefix"),
     data_string: Optional[str] = typer.Option(None, "--data-string"),
     data_include_filename: Optional[bool] = typer.Option(

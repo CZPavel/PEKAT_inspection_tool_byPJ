@@ -26,12 +26,19 @@ The app is split into four layers:
   - `avg_eval_time_ms`
   - `last_result_json`
 - `reset_counters()` resets all counters and JSON snapshot
+- Production mode parsing checks key variants:
+  - `Production_Mode`, `production_mode`, `ProductionMode`, `productionMode`, `production mode`
 
 ### `pektool/core/runner.py`
 - Polls files, enqueues tasks, processes queue
 - Sends image + `data` into PEKAT
 - Normalizes context evaluation result for UI/logs
 - Writes JSONL per image with status and evaluation details
+- Supports run modes:
+  - `loop`
+  - `once`
+  - `initial_then_watch`
+  - `just_watch` (ignores startup files and sends only newly created files)
 
 ### `pektool/core/context_eval.py`
 - Converts PEKAT context into normalized evaluation object

@@ -12,6 +12,8 @@ from ..config import AppConfig
 
 
 class ConnectionManager:
+    """Holds live PEKAT connection and UI-facing runtime statistics."""
+
     def __init__(self, config: AppConfig, logger) -> None:
         self.config = config
         self.logger = logger
@@ -47,11 +49,38 @@ class ConnectionManager:
         self.config = config
 
     def update_last_context(self, context: Optional[dict[str, Any]]) -> None:
+        # Keep the raw last context for diagnostics/JSON tab.
         self.last_context = context
-        if isinstance(context, dict) and "Production_Mode" in context:
-            self.last_production_mode = bool(context.get("Production_Mode"))
-        else:
-            self.last_production_mode = None
+        self.last_production_mode = self._extract_production_mode(context)
+
+    def _extract_production_mode(self, context: Optional[dict[str, Any]]) -> Optional[bool]:
+        if not isinstance(context, dict):
+            return None
+        # Different projects may publish this flag under slightly different key names.
+        candidate_keys = (
+            "Production_Mode",
+            "production_mode",
+            "ProductionMode",
+            "productionMode",
+            "production mode",
+        )
+        for key in candidate_keys:
+            if key in context:
+                value = context.get(key)
+                if isinstance(value, bool):
+                    return value
+                if isinstance(value, (int, float)):
+                    if value == 1:
+                        return True
+                    if value == 0:
+                        return False
+                if isinstance(value, str):
+                    lowered = value.strip().lower()
+                    if lowered in {"true", "1", "on"}:
+                        return True
+                    if lowered in {"false", "0", "off"}:
+                        return False
+        return None
 
     def update_last_data(self, data_value: str) -> None:
         self.last_data = data_value
@@ -74,6 +103,7 @@ class ConnectionManager:
         context: Optional[dict[str, Any]],
         error: Optional[str],
     ) -> None:
+        # This entrypoint is called by Runner after each final analyze outcome.
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
         if self._lock:
             with self._lock:
@@ -102,6 +132,7 @@ class ConnectionManager:
         timestamp: str,
     ) -> None:
         if context is not None:
+            # Update aggregate evaluation counters used by GUI.
             self.total_evaluated += 1
             if complete_time_ms is not None:
                 self.last_eval_time_ms = int(complete_time_ms)

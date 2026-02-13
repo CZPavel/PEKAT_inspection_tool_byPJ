@@ -21,9 +21,13 @@ This guide describes GUI controls and runtime indicators.
 - `Vybrat soubory` for fixed file list mode
 
 ### 5) Run mode
-- `loop`: loop over initial snapshot
-- `once`: process once and stop
-- `initial_then_watch`: process current files, then only new files
+- `Loop`: Nacita snimky k vyhodnoceni stale dokola
+- `Once`: Odesle postupne vsechny snimky k vyhodnoceni jen jednou
+- `Send ALL Once and Watch`: Odesle vsechny snimky ve slozce jednou, pak ceka na dalsi nove
+- `Just Watch`: Ignoruje stavajici snimky ve slozce a ceka jen na nove soubory
+
+Poznamka:
+- Vsechny rezimy respektuji volbu `Zahrnout podslozky`.
 
 ### 6) Delay
 - `Prodleva (ms)` is delay between sends
