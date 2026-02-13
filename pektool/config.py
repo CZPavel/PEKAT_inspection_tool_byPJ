@@ -56,6 +56,7 @@ class PekatConfig(BaseModel):
     data_include_string: bool = False
     data_string_value: str = ""
     data_prefix: str = ""  # legacy support
+    oknok_source: Literal["context_result", "result_field"] = "context_result"
     result_field: Optional[str] = None
     health_ping_sec: float = 5.0
 

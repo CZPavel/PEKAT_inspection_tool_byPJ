@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from typing import Any, Optional
 
@@ -21,7 +22,14 @@ class ConnectionManager:
         self.last_data: str = ""
         self.last_production_mode: Optional[bool] = None
         self.total_sent: int = 0
+        self.total_evaluated: int = 0
+        self.ok_count: int = 0
+        self.nok_count: int = 0
+        self.last_eval_time_ms: Optional[int] = None
+        self.avg_eval_time_ms: Optional[float] = None
+        self.last_result_json: str = "{}"
         self.sent_list: list[str] = []
+        self._eval_time_sum_ms: int = 0
         self._lock = None
         self._restart_in_progress = False
 
@@ -59,14 +67,88 @@ class ConnectionManager:
             self.total_sent += 1
             self.sent_list.append(path)
 
+    def record_evaluation(
+        self,
+        complete_time_ms: Optional[int],
+        ok_nok: Optional[str],
+        context: Optional[dict[str, Any]],
+        error: Optional[str],
+    ) -> None:
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        if self._lock:
+            with self._lock:
+                self._record_evaluation_locked(
+                    complete_time_ms=complete_time_ms,
+                    ok_nok=ok_nok,
+                    context=context,
+                    error=error,
+                    timestamp=timestamp,
+                )
+        else:
+            self._record_evaluation_locked(
+                complete_time_ms=complete_time_ms,
+                ok_nok=ok_nok,
+                context=context,
+                error=error,
+                timestamp=timestamp,
+            )
+
+    def _record_evaluation_locked(
+        self,
+        complete_time_ms: Optional[int],
+        ok_nok: Optional[str],
+        context: Optional[dict[str, Any]],
+        error: Optional[str],
+        timestamp: str,
+    ) -> None:
+        if context is not None:
+            self.total_evaluated += 1
+            if complete_time_ms is not None:
+                self.last_eval_time_ms = int(complete_time_ms)
+                self._eval_time_sum_ms += int(complete_time_ms)
+                if self.total_evaluated > 0:
+                    self.avg_eval_time_ms = self._eval_time_sum_ms / self.total_evaluated
+            normalized = (ok_nok or "").strip().upper()
+            if normalized == "OK":
+                self.ok_count += 1
+            elif normalized == "NOK":
+                self.nok_count += 1
+            try:
+                self.last_result_json = json.dumps(context, ensure_ascii=False, indent=2)
+            except Exception:
+                self.last_result_json = json.dumps({"status": "ERROR", "error": "invalid-context"})
+            return
+
+        payload = {
+            "status": "ERROR",
+            "error": error or "Unknown error",
+            "ok_nok": ok_nok,
+            "timestamp": timestamp,
+        }
+        self.last_result_json = json.dumps(payload, ensure_ascii=False, indent=2)
+
     def reset_counters(self) -> None:
         if self._lock:
             with self._lock:
                 self.total_sent = 0
+                self.total_evaluated = 0
+                self.ok_count = 0
+                self.nok_count = 0
+                self.last_eval_time_ms = None
+                self.avg_eval_time_ms = None
+                self.last_result_json = "{}"
                 self.sent_list = []
+                self._eval_time_sum_ms = 0
         else:
             self.total_sent = 0
+            self.total_evaluated = 0
+            self.ok_count = 0
+            self.nok_count = 0
+            self.last_eval_time_ms = None
+            self.avg_eval_time_ms = None
+            self.last_result_json = "{}"
             self.sent_list = []
+            self._eval_time_sum_ms = 0
 
     def connect(self) -> bool:
         if self.state in {"connected", "connecting"}:

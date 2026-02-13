@@ -34,6 +34,7 @@ pekat:
   data_include_timestamp: false
   data_include_string: false
   data_string_value: ""
+  oknok_source: context_result
   result_field: null
   health_ping_sec: 5.0
 
@@ -44,7 +45,7 @@ rest:
   use_session: true
 
 connection:
-  policy: off
+  policy: "off"
   reconnect_attempts: 5
   reconnect_delay_sec: 30
 

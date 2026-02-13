@@ -11,8 +11,9 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from ..config import AppConfig
 from .connection import ConnectionManager
+from .context_eval import normalize_context_evaluation
 from ..io.file_scanner import FileScanner
-from ..types import AnalyzeResult, ImageTask
+from ..types import AnalyzeResult, ImageTask, NormalizedEvaluation
 
 
 class Runner:
@@ -193,16 +194,41 @@ class Runner:
             self.logger.info("Sending data: %s", task.data_value)
             context, _ = self._analyze_with_retry(task)
             self.connection.update_last_context(context)
-            ok_nok = self._extract_ok_nok(context)
             latency_ms = int((time.perf_counter() - start) * 1000)
             self.connection.record_sent(str(task.path))
-            return AnalyzeResult(status="ok", latency_ms=latency_ms, error=None, context=context, ok_nok=ok_nok)
+            fallback_ok_nok = self._extract_ok_nok(context)
+            evaluation = normalize_context_evaluation(
+                context=context,
+                fallback_ok_nok=fallback_ok_nok,
+                latency_ms=latency_ms,
+                oknok_source=self.config.pekat.oknok_source,
+            )
+            self.connection.record_evaluation(
+                complete_time_ms=evaluation.complete_time_ms,
+                ok_nok=evaluation.ok_nok,
+                context=context,
+                error=None,
+            )
+            return AnalyzeResult(
+                status="ok",
+                latency_ms=latency_ms,
+                error=None,
+                context=context,
+                ok_nok=evaluation.ok_nok,
+                evaluation=evaluation,
+            )
         except Exception as exc:
             latency_ms = int((time.perf_counter() - start) * 1000)
             if self._should_requeue(exc):
                 self.logger.warning("Transient error, requeueing %s: %s", task.path, exc)
                 self._requeue_task(task)
                 return None
+            self.connection.record_evaluation(
+                complete_time_ms=None,
+                ok_nok=None,
+                context=None,
+                error=str(exc),
+            )
             return AnalyzeResult(status="error", latency_ms=latency_ms, error=str(exc), context=None, ok_nok=None)
 
     def _extract_ok_nok(self, context: Optional[Dict[str, Any]]) -> Optional[str]:
@@ -234,6 +260,14 @@ class Runner:
         return "".join(parts)
 
     def _log_result(self, task: ImageTask, result: AnalyzeResult) -> None:
+        evaluation = result.evaluation or NormalizedEvaluation(
+            eval_status="ERROR",
+            result_bool=None,
+            ok_nok=result.ok_nok,
+            complete_time_s=None,
+            complete_time_ms=None,
+            detected_count=0,
+        )
         record = {
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
             "filename": str(task.path),
@@ -241,6 +275,11 @@ class Runner:
             "status": result.status,
             "latency_ms": result.latency_ms,
             "ok_nok": result.ok_nok,
+            "eval_status": evaluation.eval_status,
+            "result_bool": evaluation.result_bool,
+            "complete_time_s": evaluation.complete_time_s,
+            "complete_time_ms": evaluation.complete_time_ms,
+            "detected_count": evaluation.detected_count,
             "error": result.error,
             "mode": self.config.mode,
         }
