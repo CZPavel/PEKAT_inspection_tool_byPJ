@@ -22,7 +22,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("PEKAT Inspection Tool")
+        self.setWindowTitle("PEKAT Inspection Tool V03.1")
         self.resize(980, 640)
 
         self.state = GuiState()
@@ -42,8 +42,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.tabs.addTab(self.config_tab, "Konfigurace")
         self.tabs.addTab(self.file_actions_tab, "Manipulace se soubory")
+        self.tabs.addTab(self.json_tab, "Last Context JSON")
         self.tabs.addTab(self.log_tab, "Log")
-        self.tabs.addTab(self.json_tab, "JSON")
 
         self._build_config_tab()
         self._build_file_actions_tab()
@@ -252,8 +252,14 @@ class MainWindow(QtWidgets.QMainWindow):
         layout = QtWidgets.QVBoxLayout(self.file_actions_tab)
 
         self.file_actions_enable_check = QtWidgets.QCheckBox("Povolit manipulaci se soubory")
+        self.file_actions_save_json_check = QtWidgets.QCheckBox("Ukladat JSON Context")
+        self.file_actions_save_processed_check = QtWidgets.QCheckBox("Save PROCESSED Image")
         self.file_actions_info_label = QtWidgets.QLabel("")
         self.file_actions_info_label.setStyleSheet("color: #777;")
+        self.file_actions_processed_hint = QtWidgets.QLabel(
+            "Processed image will be saved as ANOTATED_<original_name>.png by default."
+        )
+        self.file_actions_processed_hint.setStyleSheet("color: #777;")
 
         self.file_actions_mode_combo = QtWidgets.QComboBox()
         self.file_actions_mode_combo.addItem("Po vyhodnoceni mazat soubory", "delete_after_eval")
@@ -261,9 +267,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.file_actions_mode_combo.addItem("Presun kdyz OK - Smaz kdyz NOK", "move_ok_delete_nok")
         self.file_actions_mode_combo.addItem("Smaz kdyz OK - Presun kdyz NOK", "delete_ok_move_nok")
 
+        top_checks = QtWidgets.QHBoxLayout()
+        top_checks.addWidget(self.file_actions_enable_check)
+        top_checks.addWidget(self.file_actions_save_json_check)
+        top_checks.addWidget(self.file_actions_save_processed_check)
+
         top_form = QtWidgets.QFormLayout()
-        top_form.addRow("", self.file_actions_enable_check)
+        top_form.addRow("", top_checks)
         top_form.addRow("Rezim manipulace", self.file_actions_mode_combo)
+        top_form.addRow("", self.file_actions_processed_hint)
         top_form.addRow("", self.file_actions_info_label)
         layout.addLayout(top_form)
 
@@ -319,13 +331,15 @@ class MainWindow(QtWidgets.QMainWindow):
         nok_layout.addRow("", self.file_nok_string_check)
         nok_layout.addRow("Text", self.file_nok_string_edit)
 
-        sections_layout = QtWidgets.QHBoxLayout()
+        sections_layout = QtWidgets.QVBoxLayout()
         sections_layout.addWidget(self.file_ok_group)
         sections_layout.addWidget(self.file_nok_group)
         layout.addLayout(sections_layout)
         layout.addStretch(1)
 
         self.file_actions_enable_check.toggled.connect(self._update_file_actions_mode_ui)
+        self.file_actions_save_json_check.toggled.connect(self._update_file_actions_mode_ui)
+        self.file_actions_save_processed_check.toggled.connect(self._update_file_actions_mode_ui)
         self.file_actions_mode_combo.currentIndexChanged.connect(self._update_file_actions_mode_ui)
         self._update_file_actions_mode_ui()
 
@@ -343,7 +357,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self.file_actions_enable_check.setChecked(False)
             self.file_actions_enable_check.blockSignals(False)
             self.file_actions_enable_check.setEnabled(False)
-            self.file_actions_info_label.setText("V rezimu Loop neni funkcionalita dostupna.")
+            self.file_actions_info_label.setText(
+                "V rezimu Loop neni dostupna manipulace se zdrojovymi soubory."
+            )
         else:
             self.file_actions_enable_check.setEnabled(True)
             self.file_actions_info_label.setText("")
@@ -361,14 +377,28 @@ class MainWindow(QtWidgets.QMainWindow):
         if not hasattr(self, "file_actions_enable_check"):
             return
 
-        enabled = self.file_actions_enable_check.isChecked() and self.file_actions_enable_check.isEnabled()
+        source_enabled = self.file_actions_enable_check.isChecked() and self.file_actions_enable_check.isEnabled()
+        json_enabled = self.file_actions_save_json_check.isChecked()
+        processed_enabled = self.file_actions_save_processed_check.isChecked()
+        enabled = source_enabled or json_enabled or processed_enabled
         mode = str(self.file_actions_mode_combo.currentData() or "move_by_result")
-        self.file_actions_mode_combo.setEnabled(enabled)
+        self.file_actions_mode_combo.setEnabled(source_enabled)
 
-        ok_needs_target = mode in {"move_by_result", "move_ok_delete_nok"}
-        nok_needs_target = mode in {"move_by_result", "delete_ok_move_nok"}
-        self.file_ok_group.setEnabled(enabled and ok_needs_target)
-        self.file_nok_group.setEnabled(enabled and nok_needs_target)
+        if not enabled:
+            ok_needs_target = False
+            nok_needs_target = False
+        elif source_enabled:
+            ok_needs_target = mode in {"move_by_result", "move_ok_delete_nok"}
+            nok_needs_target = mode in {"move_by_result", "delete_ok_move_nok"}
+            if json_enabled or processed_enabled:
+                ok_needs_target = True
+                nok_needs_target = True
+        else:
+            ok_needs_target = True
+            nok_needs_target = True
+
+        self.file_ok_group.setEnabled(ok_needs_target)
+        self.file_nok_group.setEnabled(nok_needs_target)
         self._update_file_actions_string_edits()
 
     def _build_log_tab(self) -> None:
@@ -419,6 +449,9 @@ class MainWindow(QtWidgets.QMainWindow):
             and str(self.run_mode_combo.currentData() or "") != "loop"
         )
         cfg.file_actions.mode = str(self.file_actions_mode_combo.currentData() or "move_by_result")
+        cfg.file_actions.save_json_context = self.file_actions_save_json_check.isChecked()
+        cfg.file_actions.save_processed_image = self.file_actions_save_processed_check.isChecked()
+        cfg.file_actions.processed_response_type = "annotated_image"
         cfg.file_actions.ok.base_dir = self.file_ok_dir_edit.text().strip()
         cfg.file_actions.ok.create_daily_folder = self.file_ok_daily_check.isChecked()
         cfg.file_actions.ok.create_hourly_folder = self.file_ok_hourly_check.isChecked()
@@ -653,6 +686,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.run_mode_combo,
             self.delay_spin,
             self.file_actions_enable_check,
+            self.file_actions_save_json_check,
+            self.file_actions_save_processed_check,
             self.file_actions_mode_combo,
             self.file_ok_group,
             self.file_nok_group,
@@ -701,6 +736,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._set_run_mode_combo(str(data.get("run_mode", "initial_then_watch")))
         self.delay_spin.setValue(int(data.get("delay_ms", 150)))
         self.file_actions_enable_check.setChecked(bool(data.get("file_actions_enabled", False)))
+        self.file_actions_save_json_check.setChecked(bool(data.get("file_actions_save_json", False)))
+        self.file_actions_save_processed_check.setChecked(bool(data.get("file_actions_save_processed", False)))
         file_mode = str(data.get("file_actions_mode", "move_by_result"))
         for idx in range(self.file_actions_mode_combo.count()):
             if self.file_actions_mode_combo.itemData(idx) == file_mode:
@@ -757,6 +794,8 @@ class MainWindow(QtWidgets.QMainWindow):
             "run_mode": str(self.run_mode_combo.currentData() or "initial_then_watch"),
             "delay_ms": int(self.delay_spin.value()),
             "file_actions_enabled": self.file_actions_enable_check.isChecked(),
+            "file_actions_save_json": self.file_actions_save_json_check.isChecked(),
+            "file_actions_save_processed": self.file_actions_save_processed_check.isChecked(),
             "file_actions_mode": str(self.file_actions_mode_combo.currentData() or "move_by_result"),
             "file_ok_dir": self.file_ok_dir_edit.text().strip(),
             "file_ok_daily": self.file_ok_daily_check.isChecked(),

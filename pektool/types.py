@@ -20,6 +20,8 @@ class AnalyzeResult:
     ok_nok: Optional[str]
     evaluation: Optional["NormalizedEvaluation"] = None
     file_action: Optional["FileActionResult"] = None
+    image_bytes: Optional[bytes] = None
+    artifact_save: Optional["ArtifactSaveResult"] = None
 
 
 @dataclass
@@ -40,3 +42,12 @@ class FileActionResult:
     target_path: Optional[str]
     reason: Optional[str]
     eval_status: Literal["OK", "NOK", "UNKNOWN", "ERROR"]
+
+
+@dataclass
+class ArtifactSaveResult:
+    json_saved: bool
+    json_path: Optional[str]
+    processed_saved: bool
+    processed_path: Optional[str]
+    reason: Optional[str]

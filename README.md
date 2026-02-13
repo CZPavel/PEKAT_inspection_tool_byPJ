@@ -35,11 +35,17 @@ Important V03.1 file manipulation options:
 - `file_actions.mode: delete_after_eval | move_by_result | move_ok_delete_nok | delete_ok_move_nok`
 - `file_actions.ok.*` and `file_actions.nok.*` for target folders and naming
 
+Important V03.2 artifact options:
+- `file_actions.save_json_context`
+- `file_actions.save_processed_image`
+- `file_actions.processed_response_type` (default `annotated_image`)
+
 Note:
 - `data` is internal PEKAT argument used inside project flow.
 - PM TCP control works only when TCP server is enabled in Projects Manager.
 - file manipulation is automatically disabled in `run_mode=loop`
 - `UNKNOWN/ERROR` evaluations are treated as `NOK` for file manipulation routing
+- in `run_mode=loop`, JSON context / processed image saving can stay enabled
 
 ## Run
 ### CLI
@@ -75,7 +81,7 @@ GUI shows:
 - last evaluation time (ms)
 - average evaluation time (ms)
 - NOK/OK counters
-- full JSON context of last processed image in `JSON` tab
+- full JSON context of last processed image in `Last Context JSON` tab
 
 ## File Manipulation (V03.1)
 GUI tab `Manipulace se soubory` supports post-evaluation actions:
@@ -83,6 +89,10 @@ GUI tab `Manipulace se soubory` supports post-evaluation actions:
 - move by result (OK/NOK)
 - move OK + delete NOK
 - delete OK + move NOK
+
+V03.2 adds artifact outputs in the same tab:
+- `Ukladat JSON Context`
+- `Save PROCESSED Image`
 
 Folder and filename rules:
 - daily folder: `YYYY_MM_DD`
@@ -93,6 +103,8 @@ Folder and filename rules:
   - timestamp suffix (`_YYYY_MM_DD_HH_MM_SS`)
   - custom string suffix
 - on target name collision, auto-rename is used (`_1`, `_2`, ...)
+- processed image default naming uses prefix `ANOTATED_`:
+  - `part_001.png` -> `ANOTATED_part_001.png`
 
 ## Build (PyInstaller onedir)
 ```powershell

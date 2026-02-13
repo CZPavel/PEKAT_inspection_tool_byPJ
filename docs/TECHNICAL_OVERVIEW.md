@@ -41,6 +41,10 @@ The app is split into four layers:
   - `just_watch` (ignores startup files and sends only newly created files)
 - Applies optional post-evaluation file actions (delete/move)
 - In `loop` mode, file actions are force-disabled with warning log
+- Can save output artifacts after evaluation:
+  - JSON context file
+  - processed image file
+- If processed saving is enabled, analyze call uses `annotated_image`
 
 ### `pektool/core/file_actions.py`
 - Centralized post-processing logic for source files
@@ -65,6 +69,17 @@ The app is split into four layers:
   - auto-rename (`_1`, `_2`, ...)
 - Fail-safe behavior:
   - returns structured result instead of raising fatal exception
+
+### `pektool/core/artifact_saver.py`
+- Saves optional artifacts after successful analysis.
+- Uses the same OK/NOK routing and folder/naming settings as file actions.
+- JSON context:
+  - pretty UTF-8 JSON (`indent=2`)
+  - file extension `.json`
+- Processed image:
+  - file extension `.png`
+  - default base stem `ANOTATED_<original_stem>`
+- Name collision handling uses auto-rename (`_1`, `_2`, ...).
 
 ### `pektool/core/context_eval.py`
 - Converts PEKAT context into normalized evaluation object
@@ -91,6 +106,7 @@ The app is split into four layers:
   - `context_in_body=false` -> `ContextBase64utf`
   - `context_in_body=true` -> split body using `ImageLen`
   - fallback to `response.json()` when image/context headers are missing
+- Returns both parsed context and image bytes for image response types.
 - Utility endpoints used:
   - `GET /ping`
 
@@ -118,7 +134,7 @@ Displayed values:
 - `Posledni vyhodnoceni (ms)` -> `last_eval_time_ms`
 - `Prumerny cas (ms)` -> `avg_eval_time_ms`
 - `OK` and `NOK` counters
-- Full JSON of last processed image in dedicated `JSON` tab
+- Full JSON of last processed image in dedicated `Last Context JSON` tab
 
 ## Config Notes
 
@@ -126,6 +142,9 @@ Important keys in `configs/config.example.yaml`:
 - `pekat.oknok_source: context_result | result_field`
 - `pekat.result_field` (fallback path)
 - `pekat.response_type`, `pekat.context_in_body`
+- `file_actions.save_json_context`
+- `file_actions.save_processed_image`
+- `file_actions.processed_response_type` (`annotated_image`)
 - PM TCP settings under `projects_manager` and `connection`
 
 ## Logging
@@ -138,6 +157,12 @@ Important keys in `configs/config.example.yaml`:
     - `file_action_operation`
     - `file_action_target`
     - `file_action_reason`
+  - artifact fields:
+    - `json_context_saved`
+    - `json_context_path`
+    - `processed_image_saved`
+    - `processed_image_path`
+    - `artifact_reason`
 
 ## Constraints
 

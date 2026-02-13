@@ -77,14 +77,18 @@ Notes:
 
 - `Manipulace se soubory`: post-evaluation delete/move rules
 - `Log`: runtime log stream
-- `JSON`: full JSON of last processed image context (or last error payload)
+- `Last Context JSON`: full JSON of last processed image context (or last error payload)
 
 ## Tab: Manipulace se soubory
 
 ### 1) Enable
 - `Povolit manipulaci se soubory` turns post-processing on/off
 - In `Loop` run mode, this checkbox is disabled and forced OFF
-- Message is shown: `V rezimu Loop neni funkcionalita dostupna.`
+- Message is shown: `V rezimu Loop neni dostupna manipulace se zdrojovymi soubory.`
+- New independent options:
+  - `Ukladat JSON Context`
+  - `Save PROCESSED Image`
+- These two options can remain enabled even in `Loop` mode.
 
 ### 2) Manipulation mode
 - `Po vyhodnoceni mazat soubory`
@@ -107,6 +111,9 @@ Rules:
 - If only hourly is enabled, hourly folder is created directly under target root.
 - Unknown or error evaluation is treated as `NOK` for routing.
 - Name collisions in target folder use auto-rename (`_1`, `_2`, ...).
+- JSON context file is saved as `.json` with image-derived name.
+- Processed image is saved as `.png` and default stem starts with `ANOTATED_`.
+- Example: `part_001.png` -> `ANOTATED_part_001.png`.
 
 ## Reset
 

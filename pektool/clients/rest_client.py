@@ -100,49 +100,57 @@ class RestClient(BaseClient):
         )
         response.raise_for_status()
 
-        context = self._parse_context(response, context_in_body, response_type)
-        return context, None
+        context, image_bytes = self._parse_response(response, context_in_body, response_type)
+        return context, image_bytes
 
-    def _parse_context(
+    def _parse_response(
         self, response: requests.Response, context_in_body: bool, response_type: str
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[bytes]]:
         if response_type == "context":
             try:
-                return response.json()
+                return response.json(), None
             except ValueError:
-                return None
+                return None, None
 
         if context_in_body:
             # Image bytes + context JSON are concatenated in body; ImageLen splits them.
             image_len_str = response.headers.get("ImageLen")
             if not image_len_str:
                 try:
-                    return response.json()
+                    return response.json(), None
                 except ValueError:
-                    return None
+                    return None, None
             try:
                 image_len = int(image_len_str)
             except ValueError:
-                return None
+                return None, None
             payload = response.content
+            image_bytes = payload[:image_len]
             context_bytes = payload[image_len:]
             if not context_bytes:
-                return None
+                return None, image_bytes
             try:
-                return json.loads(context_bytes.decode("utf-8"))
+                return json.loads(context_bytes.decode("utf-8")), image_bytes
             except json.JSONDecodeError:
-                return None
+                return None, image_bytes
 
         # Default non-body mode transports context via header.
+        image_bytes = response.content
         header = response.headers.get("ContextBase64utf") or response.headers.get("ContextBase64utg")
         if not header:
             try:
-                return response.json()
+                return response.json(), None
             except ValueError:
-                return None
+                return None, image_bytes
         try:
             decoded = base64.b64decode(header)
-            return json.loads(decoded.decode("utf-8"))
+            return json.loads(decoded.decode("utf-8")), image_bytes
         except (ValueError, json.JSONDecodeError):
-            return None
+            return None, image_bytes
+
+    def _parse_context(
+        self, response: requests.Response, context_in_body: bool, response_type: str
+    ) -> Optional[Dict[str, Any]]:
+        context, _ = self._parse_response(response, context_in_body, response_type)
+        return context
 

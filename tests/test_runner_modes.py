@@ -44,7 +44,9 @@ def test_loop_mode_forces_file_actions_disabled(tmp_path):
     cfg.input.folder = str(tmp_path)
     cfg.behavior.run_mode = "loop"
     cfg.file_actions.enabled = True
+    cfg.file_actions.save_json_context = True
     runner = Runner(cfg, _DummyConnection(), _DummyLogger())
     runner.start()
     runner.stop()
     assert cfg.file_actions.enabled is False
+    assert cfg.file_actions.save_json_context is True

@@ -27,6 +27,9 @@ file_actions:
   mode: move_by_result
   unknown_as_nok: true
   collision_policy: auto_rename
+  save_json_context: false
+  save_processed_image: false
+  processed_response_type: annotated_image
   ok:
     base_dir: ""
     create_daily_folder: false

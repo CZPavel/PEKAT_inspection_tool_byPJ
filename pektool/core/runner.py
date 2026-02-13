@@ -12,10 +12,11 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from ..config import AppConfig
 from .connection import ConnectionManager
+from .artifact_saver import save_artifacts
 from .context_eval import normalize_context_evaluation
 from .file_actions import apply_file_action
 from ..io.file_scanner import FileScanner
-from ..types import AnalyzeResult, FileActionResult, ImageTask, NormalizedEvaluation
+from ..types import AnalyzeResult, ArtifactSaveResult, FileActionResult, ImageTask, NormalizedEvaluation
 
 
 class Runner:
@@ -235,7 +236,7 @@ class Runner:
         try:
             self.connection.update_last_data(task.data_value)
             self.logger.info("Sending data: %s", task.data_value)
-            context, _ = self._analyze_with_retry(task)
+            context, image_bytes = self._analyze_with_retry(task)
             self.connection.update_last_context(context)
             latency_ms = int((time.perf_counter() - start) * 1000)
             self.connection.record_sent(str(task.path))
@@ -253,6 +254,12 @@ class Runner:
                 error=None,
             )
             file_action_result = self._apply_file_action(task.path, evaluation)
+            artifact_save_result = self._save_artifacts(
+                path=task.path,
+                context=context,
+                image_bytes=image_bytes,
+                evaluation=evaluation,
+            )
             return AnalyzeResult(
                 status="ok",
                 latency_ms=latency_ms,
@@ -261,6 +268,8 @@ class Runner:
                 ok_nok=evaluation.ok_nok,
                 evaluation=evaluation,
                 file_action=file_action_result,
+                image_bytes=image_bytes,
+                artifact_save=artifact_save_result,
             )
         except Exception as exc:
             latency_ms = int((time.perf_counter() - start) * 1000)
@@ -281,6 +290,8 @@ class Runner:
                 context=None,
                 ok_nok=None,
                 file_action=None,
+                image_bytes=None,
+                artifact_save=None,
             )
 
     def _apply_file_action(
@@ -313,6 +324,42 @@ class Runner:
                     result.source_path,
                     result.reason,
                 )
+        return result
+
+    def _save_artifacts(
+        self,
+        path: Path,
+        context: Optional[Dict[str, Any]],
+        image_bytes: Optional[bytes],
+        evaluation: NormalizedEvaluation,
+    ) -> ArtifactSaveResult:
+        try:
+            result = save_artifacts(
+                source_path=path,
+                context=context,
+                image_bytes=image_bytes,
+                evaluation=evaluation,
+                cfg=self.config,
+                now=datetime.now(),
+            )
+        except Exception as exc:  # pragma: no cover - defensive path
+            self.logger.warning("Artifact save failed unexpectedly for %s: %s", path, exc)
+            return ArtifactSaveResult(
+                json_saved=False,
+                json_path=None,
+                processed_saved=False,
+                processed_path=None,
+                reason=f"artifact-save-exception:{exc}",
+            )
+
+        if self.config.file_actions.save_json_context or self.config.file_actions.save_processed_image:
+            if result.reason:
+                self.logger.warning("Artifact save warning for %s: %s", path, result.reason)
+            else:
+                if result.json_saved:
+                    self.logger.info("JSON context saved: %s", result.json_path)
+                if result.processed_saved:
+                    self.logger.info("Processed image saved: %s", result.processed_path)
         return result
 
     def _extract_ok_nok(self, context: Optional[Dict[str, Any]]) -> Optional[str]:
@@ -368,6 +415,11 @@ class Runner:
             "file_action_operation": result.file_action.operation if result.file_action else "none",
             "file_action_target": result.file_action.target_path if result.file_action else None,
             "file_action_reason": result.file_action.reason if result.file_action else None,
+            "json_context_saved": result.artifact_save.json_saved if result.artifact_save else False,
+            "json_context_path": result.artifact_save.json_path if result.artifact_save else None,
+            "processed_image_saved": result.artifact_save.processed_saved if result.artifact_save else False,
+            "processed_image_path": result.artifact_save.processed_path if result.artifact_save else None,
+            "artifact_reason": result.artifact_save.reason if result.artifact_save else None,
             "error": result.error,
             "mode": self.config.mode,
         }
@@ -411,11 +463,14 @@ class Runner:
             client = self.connection.client
             if client is None:
                 raise RuntimeError("Not connected to PEKAT instance.")
+            response_type = cfg.response_type
+            if self.config.file_actions.save_processed_image:
+                response_type = self.config.file_actions.processed_response_type
             return client.analyze(
                 task.path,
                 data=task.data_value,
                 timeout_sec=cfg.timeout_sec,
-                response_type=cfg.response_type,
+                response_type=response_type,
                 context_in_body=cfg.context_in_body,
             )
 

@@ -64,7 +64,33 @@ class SDKClient(BaseClient):
             result = self._instance.analyze(image, **kwargs, context_in_body=context_in_body)
         except TypeError:
             result = self._instance.analyze(image, **kwargs)
+        return self._extract_context_and_image(result)
 
+    def _extract_context_and_image(
+        self, result: object
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[bytes]]:
         if isinstance(result, dict):
             return result, None
+
+        if isinstance(result, (tuple, list)):
+            if len(result) >= 2:
+                context = result[0] if isinstance(result[0], dict) else None
+                image_bytes = result[1] if isinstance(result[1], (bytes, bytearray)) else None
+                return context, bytes(image_bytes) if image_bytes is not None else None
+            if len(result) == 1 and isinstance(result[0], dict):
+                return result[0], None
+
+        context = getattr(result, "context", None)
+        image_bytes = (
+            getattr(result, "image_bytes", None)
+            or getattr(result, "image", None)
+            or getattr(result, "annotated_image", None)
+        )
+        if isinstance(context, dict):
+            if isinstance(image_bytes, bytearray):
+                image_bytes = bytes(image_bytes)
+            if isinstance(image_bytes, bytes):
+                return context, image_bytes
+            return context, None
+
         return None, None

@@ -69,6 +69,9 @@ class FileActionsConfig(BaseModel):
     mode: FileActionMode = "move_by_result"
     unknown_as_nok: bool = True
     collision_policy: Literal["auto_rename"] = "auto_rename"
+    save_json_context: bool = False
+    save_processed_image: bool = False
+    processed_response_type: Literal["annotated_image"] = "annotated_image"
     ok: FileActionPathConfig = Field(default_factory=FileActionPathConfig)
     nok: FileActionPathConfig = Field(default_factory=FileActionPathConfig)
 

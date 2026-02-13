@@ -29,7 +29,7 @@ def apply_file_action(
             eval_status=evaluation.eval_status,
         )
 
-    effective_status = _resolve_effective_status(evaluation, file_cfg.unknown_as_nok)
+    effective_status = resolve_effective_status(evaluation, file_cfg.unknown_as_nok)
     operation = _resolve_operation(file_cfg.mode, effective_status)
     if operation == "none":
         return FileActionResult(
@@ -64,11 +64,17 @@ def apply_file_action(
                 eval_status=evaluation.eval_status,
             )
 
-        target_dir = _build_target_dir(Path(target_cfg.base_dir), target_cfg, now)
+        target_dir = build_target_dir(Path(target_cfg.base_dir), target_cfg, now)
         target_dir.mkdir(parents=True, exist_ok=True)
 
-        target_name = _build_target_filename(path, effective_status, target_cfg, now)
-        target_path = _ensure_unique_target(target_dir / target_name)
+        target_name = build_target_name(
+            base_stem=path.stem,
+            source_suffix=path.suffix,
+            effective_status=effective_status,
+            cfg=target_cfg,
+            now=now,
+        )
+        target_path = ensure_unique_target(target_dir / target_name)
 
         if path.resolve() == target_path.resolve():
             return FileActionResult(
@@ -109,7 +115,7 @@ def apply_file_action(
         )
 
 
-def _resolve_effective_status(
+def resolve_effective_status(
     evaluation: NormalizedEvaluation,
     unknown_as_nok: bool,
 ) -> Literal["OK", "NOK", "UNKNOWN"]:
@@ -137,7 +143,7 @@ def _resolve_operation(
     return "none"
 
 
-def _build_target_dir(base_dir: Path, cfg: FileActionPathConfig, now: datetime) -> Path:
+def build_target_dir(base_dir: Path, cfg: FileActionPathConfig, now: datetime) -> Path:
     target = base_dir
     if cfg.create_daily_folder:
         target = target / now.strftime("%Y_%m_%d")
@@ -146,27 +152,28 @@ def _build_target_dir(base_dir: Path, cfg: FileActionPathConfig, now: datetime) 
     return target
 
 
-def _build_target_filename(
-    source_path: Path,
+def build_target_name(
+    base_stem: str,
+    source_suffix: str,
     effective_status: Literal["OK", "NOK", "UNKNOWN"],
     cfg: FileActionPathConfig,
     now: datetime,
 ) -> str:
-    stem = source_path.stem
+    stem = base_stem
     if cfg.include_result_prefix:
         stem = f"{effective_status}_{stem}"
     if cfg.include_timestamp_suffix:
         stem = f"{stem}_{now.strftime('%Y_%m_%d_%H_%M_%S')}"
     if cfg.include_string and cfg.string_value.strip():
-        stem = f"{stem}_{_sanitize_fragment(cfg.string_value.strip())}"
-    return f"{stem}{source_path.suffix}"
+        stem = f"{stem}_{sanitize_fragment(cfg.string_value.strip())}"
+    return f"{stem}{source_suffix}"
 
 
-def _sanitize_fragment(value: str) -> str:
+def sanitize_fragment(value: str) -> str:
     return _INVALID_FILE_CHARS.sub("_", value)
 
 
-def _ensure_unique_target(path: Path) -> Path:
+def ensure_unique_target(path: Path) -> Path:
     if not path.exists():
         return path
     stem = path.stem
