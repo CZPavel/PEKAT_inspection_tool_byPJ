@@ -65,6 +65,7 @@ class RestClient(BaseClient):
             "context_in_body": "true" if context_in_body else "false",
         }
         self._apply_api_key(params, headers)
+        endpoint = f"{self.base_url}/analyze_image"
 
         if BaseClient.is_path(image):
             path = Path(image)
@@ -73,14 +74,22 @@ class RestClient(BaseClient):
             else:
                 payload = encode_png(load_image_cv(path))
         elif BaseClient.is_numpy(image):
-            payload = encode_png(image)
+            shape = image.shape
+            if len(shape) < 2:
+                raise ValueError("Raw numpy image must have height and width")
+            height = int(shape[0])
+            width = int(shape[1])
+            params["height"] = str(height)
+            params["width"] = str(width)
+            endpoint = f"{self.base_url}/analyze_raw_image"
+            payload = image.tobytes()
         elif isinstance(image, (bytes, bytearray)):
             payload = bytes(image)
         else:
             raise ValueError("Unsupported image type for REST client")
 
         response = self.session.post(
-            f"{self.base_url}/analyze_image",
+            endpoint,
             params=params,
             data=payload,
             headers=headers,
@@ -107,7 +116,10 @@ class RestClient(BaseClient):
                     return response.json()
                 except ValueError:
                     return None
-            image_len = int(image_len_str)
+            try:
+                image_len = int(image_len_str)
+            except ValueError:
+                return None
             payload = response.content
             context_bytes = payload[image_len:]
             if not context_bytes:
@@ -117,7 +129,7 @@ class RestClient(BaseClient):
             except json.JSONDecodeError:
                 return None
 
-        header = response.headers.get("ContextBase64utf")
+        header = response.headers.get("ContextBase64utf") or response.headers.get("ContextBase64utg")
         if not header:
             try:
                 return response.json()
