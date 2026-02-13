@@ -39,6 +39,32 @@ The app is split into four layers:
   - `once`
   - `initial_then_watch`
   - `just_watch` (ignores startup files and sends only newly created files)
+- Applies optional post-evaluation file actions (delete/move)
+- In `loop` mode, file actions are force-disabled with warning log
+
+### `pektool/core/file_actions.py`
+- Centralized post-processing logic for source files
+- Modes:
+  - `delete_after_eval`
+  - `move_by_result`
+  - `move_ok_delete_nok`
+  - `delete_ok_move_nok`
+- Evaluation routing:
+  - `OK` stays `OK`
+  - `NOK` stays `NOK`
+  - `UNKNOWN/ERROR` treated as `NOK`
+- Target path builder:
+  - root target dir
+  - optional daily folder `YYYY_MM_DD`
+  - optional hourly folder `MM_DD_HH`
+- Filename builder:
+  - optional result prefix (`OK_`/`NOK_`)
+  - optional timestamp suffix (`_YYYY_MM_DD_HH_MM_SS`)
+  - optional custom string suffix
+- Collision handling:
+  - auto-rename (`_1`, `_2`, ...)
+- Fail-safe behavior:
+  - returns structured result instead of raising fatal exception
 
 ### `pektool/core/context_eval.py`
 - Converts PEKAT context into normalized evaluation object
@@ -107,6 +133,11 @@ Important keys in `configs/config.example.yaml`:
 - `logs/app.log` for system/runtime messages
 - `logs/results.jsonl` for per-image records containing:
   - status, latency, eval_status, result_bool, complete_time, detected_count
+  - file action fields:
+    - `file_action_applied`
+    - `file_action_operation`
+    - `file_action_target`
+    - `file_action_reason`
 
 ## Constraints
 

@@ -30,9 +30,16 @@ Important V03 evaluation options:
 - `pekat.context_in_body`
 - `behavior.run_mode: loop | once | initial_then_watch | just_watch`
 
+Important V03.1 file manipulation options:
+- `file_actions.enabled`
+- `file_actions.mode: delete_after_eval | move_by_result | move_ok_delete_nok | delete_ok_move_nok`
+- `file_actions.ok.*` and `file_actions.nok.*` for target folders and naming
+
 Note:
 - `data` is internal PEKAT argument used inside project flow.
 - PM TCP control works only when TCP server is enabled in Projects Manager.
+- file manipulation is automatically disabled in `run_mode=loop`
+- `UNKNOWN/ERROR` evaluations are treated as `NOK` for file manipulation routing
 
 ## Run
 ### CLI
@@ -69,6 +76,23 @@ GUI shows:
 - average evaluation time (ms)
 - NOK/OK counters
 - full JSON context of last processed image in `JSON` tab
+
+## File Manipulation (V03.1)
+GUI tab `Manipulace se soubory` supports post-evaluation actions:
+- delete evaluated files
+- move by result (OK/NOK)
+- move OK + delete NOK
+- delete OK + move NOK
+
+Folder and filename rules:
+- daily folder: `YYYY_MM_DD`
+- hourly folder: `MM_DD_HH`
+- when daily+hourly are both enabled, hourly is nested under daily
+- optional filename modifiers:
+  - result prefix (`OK_` / `NOK_`)
+  - timestamp suffix (`_YYYY_MM_DD_HH_MM_SS`)
+  - custom string suffix
+- on target name collision, auto-rename is used (`_1`, `_2`, ...)
 
 ## Build (PyInstaller onedir)
 ```powershell

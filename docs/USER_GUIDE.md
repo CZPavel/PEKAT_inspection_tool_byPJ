@@ -75,8 +75,38 @@ Notes:
 
 ## Tabs
 
+- `Manipulace se soubory`: post-evaluation delete/move rules
 - `Log`: runtime log stream
 - `JSON`: full JSON of last processed image context (or last error payload)
+
+## Tab: Manipulace se soubory
+
+### 1) Enable
+- `Povolit manipulaci se soubory` turns post-processing on/off
+- In `Loop` run mode, this checkbox is disabled and forced OFF
+- Message is shown: `V rezimu Loop neni funkcionalita dostupna.`
+
+### 2) Manipulation mode
+- `Po vyhodnoceni mazat soubory`
+- `Presouvat podle vyhodnoceni`
+- `Presun kdyz OK - Smaz kdyz NOK`
+- `Smaz kdyz OK - Presun kdyz NOK`
+
+### 3) Section OK / Section NOK
+Each section contains:
+- target folder path
+- folder picker button
+- `Vytvorit novou slozku pro kazdy den (YYYY_MM_DD)`
+- `Vytvorit novou slozku pro kazdou hodinu (MM_DD_HH)`
+- `Include RESULT` (`OK_` / `NOK_` prefix)
+- `Include Timestamp` (`_YYYY_MM_DD_HH_MM_SS` suffix)
+- `Include String` + custom text field
+
+Rules:
+- If both daily and hourly are enabled, hourly folder is created under daily folder.
+- If only hourly is enabled, hourly folder is created directly under target root.
+- Unknown or error evaluation is treated as `NOK` for routing.
+- Name collisions in target folder use auto-rename (`_1`, `_2`, ...).
 
 ## Reset
 
