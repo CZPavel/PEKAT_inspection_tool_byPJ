@@ -36,14 +36,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setCentralWidget(self.tabs)
 
         self.config_tab = QtWidgets.QWidget()
+        self.file_actions_tab = QtWidgets.QWidget()
         self.log_tab = QtWidgets.QWidget()
         self.json_tab = QtWidgets.QWidget()
 
         self.tabs.addTab(self.config_tab, "Konfigurace")
+        self.tabs.addTab(self.file_actions_tab, "Manipulace se soubory")
         self.tabs.addTab(self.log_tab, "Log")
         self.tabs.addTab(self.json_tab, "JSON")
 
         self._build_config_tab()
+        self._build_file_actions_tab()
         self._build_log_tab()
         self._build_json_tab()
 
@@ -108,6 +111,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.run_mode_combo.addItem(label, value)
             self.run_mode_combo.setItemData(index, label, QtCore.Qt.ToolTipRole)
         self._set_run_mode_combo("initial_then_watch")
+        self.run_mode_combo.currentIndexChanged.connect(self._update_file_actions_loop_state)
 
         self.delay_spin = QtWidgets.QSpinBox()
         self.delay_spin.setRange(0, 600000)
@@ -242,6 +246,130 @@ class MainWindow(QtWidgets.QMainWindow):
         self.pm_tcp_enabled_check.toggled.connect(self._update_pm_controls)
         self.project_path_edit.textChanged.connect(self._update_pm_controls)
         self._update_pm_controls()
+        self._update_file_actions_loop_state()
+
+    def _build_file_actions_tab(self) -> None:
+        layout = QtWidgets.QVBoxLayout(self.file_actions_tab)
+
+        self.file_actions_enable_check = QtWidgets.QCheckBox("Povolit manipulaci se soubory")
+        self.file_actions_info_label = QtWidgets.QLabel("")
+        self.file_actions_info_label.setStyleSheet("color: #777;")
+
+        self.file_actions_mode_combo = QtWidgets.QComboBox()
+        self.file_actions_mode_combo.addItem("Po vyhodnoceni mazat soubory", "delete_after_eval")
+        self.file_actions_mode_combo.addItem("Presouvat podle vyhodnoceni", "move_by_result")
+        self.file_actions_mode_combo.addItem("Presun kdyz OK - Smaz kdyz NOK", "move_ok_delete_nok")
+        self.file_actions_mode_combo.addItem("Smaz kdyz OK - Presun kdyz NOK", "delete_ok_move_nok")
+
+        top_form = QtWidgets.QFormLayout()
+        top_form.addRow("", self.file_actions_enable_check)
+        top_form.addRow("Rezim manipulace", self.file_actions_mode_combo)
+        top_form.addRow("", self.file_actions_info_label)
+        layout.addLayout(top_form)
+
+        self.file_ok_group = QtWidgets.QGroupBox("Sekce OK")
+        ok_layout = QtWidgets.QFormLayout(self.file_ok_group)
+        self.file_ok_dir_edit = QtWidgets.QLineEdit("")
+        self.file_ok_browse_btn = QtWidgets.QToolButton()
+        self.file_ok_browse_btn.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_DirOpenIcon))
+        self.file_ok_browse_btn.setToolTip("Vybrat cilovou slozku")
+        self.file_ok_browse_btn.clicked.connect(lambda: self._select_target_dir(self.file_ok_dir_edit))
+        ok_dir_layout = QtWidgets.QHBoxLayout()
+        ok_dir_layout.addWidget(self.file_ok_dir_edit)
+        ok_dir_layout.addWidget(self.file_ok_browse_btn)
+        self.file_ok_daily_check = QtWidgets.QCheckBox("Vytvorit novou slozku pro kazdy den (YYYY_MM_DD)")
+        self.file_ok_hourly_check = QtWidgets.QCheckBox("Vytvorit novou slozku pro kazdou hodinu (MM_DD_HH)")
+        self.file_ok_result_check = QtWidgets.QCheckBox("Include RESULT")
+        self.file_ok_timestamp_check = QtWidgets.QCheckBox("Include Timestamp")
+        self.file_ok_string_check = QtWidgets.QCheckBox("Include String")
+        self.file_ok_string_edit = QtWidgets.QLineEdit("")
+        self.file_ok_string_edit.setEnabled(False)
+        self.file_ok_string_check.toggled.connect(self._update_file_actions_string_edits)
+        ok_layout.addRow("Cilova slozka", ok_dir_layout)
+        ok_layout.addRow("", self.file_ok_daily_check)
+        ok_layout.addRow("", self.file_ok_hourly_check)
+        ok_layout.addRow("", self.file_ok_result_check)
+        ok_layout.addRow("", self.file_ok_timestamp_check)
+        ok_layout.addRow("", self.file_ok_string_check)
+        ok_layout.addRow("Text", self.file_ok_string_edit)
+
+        self.file_nok_group = QtWidgets.QGroupBox("Sekce NOK")
+        nok_layout = QtWidgets.QFormLayout(self.file_nok_group)
+        self.file_nok_dir_edit = QtWidgets.QLineEdit("")
+        self.file_nok_browse_btn = QtWidgets.QToolButton()
+        self.file_nok_browse_btn.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_DirOpenIcon))
+        self.file_nok_browse_btn.setToolTip("Vybrat cilovou slozku")
+        self.file_nok_browse_btn.clicked.connect(lambda: self._select_target_dir(self.file_nok_dir_edit))
+        nok_dir_layout = QtWidgets.QHBoxLayout()
+        nok_dir_layout.addWidget(self.file_nok_dir_edit)
+        nok_dir_layout.addWidget(self.file_nok_browse_btn)
+        self.file_nok_daily_check = QtWidgets.QCheckBox("Vytvorit novou slozku pro kazdy den (YYYY_MM_DD)")
+        self.file_nok_hourly_check = QtWidgets.QCheckBox("Vytvorit novou slozku pro kazdou hodinu (MM_DD_HH)")
+        self.file_nok_result_check = QtWidgets.QCheckBox("Include RESULT")
+        self.file_nok_timestamp_check = QtWidgets.QCheckBox("Include Timestamp")
+        self.file_nok_string_check = QtWidgets.QCheckBox("Include String")
+        self.file_nok_string_edit = QtWidgets.QLineEdit("")
+        self.file_nok_string_edit.setEnabled(False)
+        self.file_nok_string_check.toggled.connect(self._update_file_actions_string_edits)
+        nok_layout.addRow("Cilova slozka", nok_dir_layout)
+        nok_layout.addRow("", self.file_nok_daily_check)
+        nok_layout.addRow("", self.file_nok_hourly_check)
+        nok_layout.addRow("", self.file_nok_result_check)
+        nok_layout.addRow("", self.file_nok_timestamp_check)
+        nok_layout.addRow("", self.file_nok_string_check)
+        nok_layout.addRow("Text", self.file_nok_string_edit)
+
+        sections_layout = QtWidgets.QHBoxLayout()
+        sections_layout.addWidget(self.file_ok_group)
+        sections_layout.addWidget(self.file_nok_group)
+        layout.addLayout(sections_layout)
+        layout.addStretch(1)
+
+        self.file_actions_enable_check.toggled.connect(self._update_file_actions_mode_ui)
+        self.file_actions_mode_combo.currentIndexChanged.connect(self._update_file_actions_mode_ui)
+        self._update_file_actions_mode_ui()
+
+    def _select_target_dir(self, target_edit: QtWidgets.QLineEdit) -> None:
+        folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Vyberte cilovou slozku")
+        if folder:
+            target_edit.setText(folder)
+
+    def _update_file_actions_loop_state(self) -> None:
+        if not hasattr(self, "file_actions_enable_check"):
+            return
+        is_loop_mode = str(self.run_mode_combo.currentData() or "") == "loop"
+        if is_loop_mode:
+            self.file_actions_enable_check.blockSignals(True)
+            self.file_actions_enable_check.setChecked(False)
+            self.file_actions_enable_check.blockSignals(False)
+            self.file_actions_enable_check.setEnabled(False)
+            self.file_actions_info_label.setText("V rezimu Loop neni funkcionalita dostupna.")
+        else:
+            self.file_actions_enable_check.setEnabled(True)
+            self.file_actions_info_label.setText("")
+        self._update_file_actions_mode_ui()
+
+    def _update_file_actions_string_edits(self) -> None:
+        self.file_ok_string_edit.setEnabled(
+            self.file_ok_group.isEnabled() and self.file_ok_string_check.isChecked()
+        )
+        self.file_nok_string_edit.setEnabled(
+            self.file_nok_group.isEnabled() and self.file_nok_string_check.isChecked()
+        )
+
+    def _update_file_actions_mode_ui(self) -> None:
+        if not hasattr(self, "file_actions_enable_check"):
+            return
+
+        enabled = self.file_actions_enable_check.isChecked() and self.file_actions_enable_check.isEnabled()
+        mode = str(self.file_actions_mode_combo.currentData() or "move_by_result")
+        self.file_actions_mode_combo.setEnabled(enabled)
+
+        ok_needs_target = mode in {"move_by_result", "move_ok_delete_nok"}
+        nok_needs_target = mode in {"move_by_result", "delete_ok_move_nok"}
+        self.file_ok_group.setEnabled(enabled and ok_needs_target)
+        self.file_nok_group.setEnabled(enabled and nok_needs_target)
+        self._update_file_actions_string_edits()
 
     def _build_log_tab(self) -> None:
         layout = QtWidgets.QVBoxLayout(self.log_tab)
@@ -286,6 +414,25 @@ class MainWindow(QtWidgets.QMainWindow):
 
         cfg.behavior.run_mode = str(self.run_mode_combo.currentData() or "initial_then_watch")
         cfg.behavior.delay_between_images_ms = int(self.delay_spin.value())
+        cfg.file_actions.enabled = bool(
+            self.file_actions_enable_check.isChecked()
+            and str(self.run_mode_combo.currentData() or "") != "loop"
+        )
+        cfg.file_actions.mode = str(self.file_actions_mode_combo.currentData() or "move_by_result")
+        cfg.file_actions.ok.base_dir = self.file_ok_dir_edit.text().strip()
+        cfg.file_actions.ok.create_daily_folder = self.file_ok_daily_check.isChecked()
+        cfg.file_actions.ok.create_hourly_folder = self.file_ok_hourly_check.isChecked()
+        cfg.file_actions.ok.include_result_prefix = self.file_ok_result_check.isChecked()
+        cfg.file_actions.ok.include_timestamp_suffix = self.file_ok_timestamp_check.isChecked()
+        cfg.file_actions.ok.include_string = self.file_ok_string_check.isChecked()
+        cfg.file_actions.ok.string_value = self.file_ok_string_edit.text()
+        cfg.file_actions.nok.base_dir = self.file_nok_dir_edit.text().strip()
+        cfg.file_actions.nok.create_daily_folder = self.file_nok_daily_check.isChecked()
+        cfg.file_actions.nok.create_hourly_folder = self.file_nok_hourly_check.isChecked()
+        cfg.file_actions.nok.include_result_prefix = self.file_nok_result_check.isChecked()
+        cfg.file_actions.nok.include_timestamp_suffix = self.file_nok_timestamp_check.isChecked()
+        cfg.file_actions.nok.include_string = self.file_nok_string_check.isChecked()
+        cfg.file_actions.nok.string_value = self.file_nok_string_edit.text()
         cfg.pekat.data_include_filename = self.data_filename_check.isChecked()
         cfg.pekat.data_include_timestamp = self.data_timestamp_check.isChecked()
         cfg.pekat.data_include_string = self.data_string_check.isChecked()
@@ -505,6 +652,10 @@ class MainWindow(QtWidgets.QMainWindow):
             self.file_select_btn,
             self.run_mode_combo,
             self.delay_spin,
+            self.file_actions_enable_check,
+            self.file_actions_mode_combo,
+            self.file_ok_group,
+            self.file_nok_group,
             self.data_filename_check,
             self.data_timestamp_check,
             self.data_string_check,
@@ -518,7 +669,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if not (connected or connecting):
             self._update_pm_controls()
+            self._update_file_actions_loop_state()
         self.data_string_edit.setEnabled(self.data_string_check.isChecked() and not sending)
+        self._update_file_actions_string_edits()
 
     def _gui_config_path(self) -> Path:
         return Path.home() / ".pektool_gui.yaml"
@@ -547,6 +700,26 @@ class MainWindow(QtWidgets.QMainWindow):
         self.include_subfolders_check.setChecked(bool(data.get("include_subfolders", True)))
         self._set_run_mode_combo(str(data.get("run_mode", "initial_then_watch")))
         self.delay_spin.setValue(int(data.get("delay_ms", 150)))
+        self.file_actions_enable_check.setChecked(bool(data.get("file_actions_enabled", False)))
+        file_mode = str(data.get("file_actions_mode", "move_by_result"))
+        for idx in range(self.file_actions_mode_combo.count()):
+            if self.file_actions_mode_combo.itemData(idx) == file_mode:
+                self.file_actions_mode_combo.setCurrentIndex(idx)
+                break
+        self.file_ok_dir_edit.setText(data.get("file_ok_dir", ""))
+        self.file_ok_daily_check.setChecked(bool(data.get("file_ok_daily", False)))
+        self.file_ok_hourly_check.setChecked(bool(data.get("file_ok_hourly", False)))
+        self.file_ok_result_check.setChecked(bool(data.get("file_ok_result_prefix", False)))
+        self.file_ok_timestamp_check.setChecked(bool(data.get("file_ok_timestamp", False)))
+        self.file_ok_string_check.setChecked(bool(data.get("file_ok_include_string", False)))
+        self.file_ok_string_edit.setText(data.get("file_ok_string_value", ""))
+        self.file_nok_dir_edit.setText(data.get("file_nok_dir", ""))
+        self.file_nok_daily_check.setChecked(bool(data.get("file_nok_daily", False)))
+        self.file_nok_hourly_check.setChecked(bool(data.get("file_nok_hourly", False)))
+        self.file_nok_result_check.setChecked(bool(data.get("file_nok_result_prefix", False)))
+        self.file_nok_timestamp_check.setChecked(bool(data.get("file_nok_timestamp", False)))
+        self.file_nok_string_check.setChecked(bool(data.get("file_nok_include_string", False)))
+        self.file_nok_string_edit.setText(data.get("file_nok_string_value", ""))
         self.data_filename_check.setChecked(bool(data.get("data_include_filename", True)))
         self.data_timestamp_check.setChecked(bool(data.get("data_include_timestamp", False)))
         self.data_string_check.setChecked(bool(data.get("data_include_string", False)))
@@ -570,6 +743,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.api_key_location_value = data.get("api_key_location", "query")
         self.api_key_name_value = data.get("api_key_name", "api_key")
         self._update_pm_controls()
+        self._update_file_actions_loop_state()
+        self._update_file_actions_mode_ui()
 
     def _save_gui_settings(self) -> None:
         payload = {
@@ -581,6 +756,22 @@ class MainWindow(QtWidgets.QMainWindow):
             "include_subfolders": self.include_subfolders_check.isChecked(),
             "run_mode": str(self.run_mode_combo.currentData() or "initial_then_watch"),
             "delay_ms": int(self.delay_spin.value()),
+            "file_actions_enabled": self.file_actions_enable_check.isChecked(),
+            "file_actions_mode": str(self.file_actions_mode_combo.currentData() or "move_by_result"),
+            "file_ok_dir": self.file_ok_dir_edit.text().strip(),
+            "file_ok_daily": self.file_ok_daily_check.isChecked(),
+            "file_ok_hourly": self.file_ok_hourly_check.isChecked(),
+            "file_ok_result_prefix": self.file_ok_result_check.isChecked(),
+            "file_ok_timestamp": self.file_ok_timestamp_check.isChecked(),
+            "file_ok_include_string": self.file_ok_string_check.isChecked(),
+            "file_ok_string_value": self.file_ok_string_edit.text(),
+            "file_nok_dir": self.file_nok_dir_edit.text().strip(),
+            "file_nok_daily": self.file_nok_daily_check.isChecked(),
+            "file_nok_hourly": self.file_nok_hourly_check.isChecked(),
+            "file_nok_result_prefix": self.file_nok_result_check.isChecked(),
+            "file_nok_timestamp": self.file_nok_timestamp_check.isChecked(),
+            "file_nok_include_string": self.file_nok_string_check.isChecked(),
+            "file_nok_string_value": self.file_nok_string_edit.text(),
             "data_include_filename": self.data_filename_check.isChecked(),
             "data_include_timestamp": self.data_timestamp_check.isChecked(),
             "data_include_string": self.data_string_check.isChecked(),
