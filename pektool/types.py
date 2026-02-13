@@ -19,6 +19,7 @@ class AnalyzeResult:
     context: Optional[Dict[str, Any]]
     ok_nok: Optional[str]
     evaluation: Optional["NormalizedEvaluation"] = None
+    file_action: Optional["FileActionResult"] = None
 
 
 @dataclass
@@ -29,3 +30,13 @@ class NormalizedEvaluation:
     complete_time_s: Optional[float]
     complete_time_ms: Optional[int]
     detected_count: int
+
+
+@dataclass
+class FileActionResult:
+    applied: bool
+    operation: Literal["none", "delete", "move"]
+    source_path: str
+    target_path: Optional[str]
+    reason: Optional[str]
+    eval_status: Literal["OK", "NOK", "UNKNOWN", "ERROR"]

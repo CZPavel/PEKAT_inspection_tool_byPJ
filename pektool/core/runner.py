@@ -4,6 +4,7 @@ import json
 import queue
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
@@ -12,8 +13,9 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from ..config import AppConfig
 from .connection import ConnectionManager
 from .context_eval import normalize_context_evaluation
+from .file_actions import apply_file_action
 from ..io.file_scanner import FileScanner
-from ..types import AnalyzeResult, ImageTask, NormalizedEvaluation
+from ..types import AnalyzeResult, FileActionResult, ImageTask, NormalizedEvaluation
 
 
 class Runner:
@@ -34,6 +36,11 @@ class Runner:
     def start(self) -> None:
         if self.scanner_thread and self.scanner_thread.is_alive():
             return
+        if self.config.behavior.run_mode == "loop" and self.config.file_actions.enabled:
+            self.logger.warning(
+                "File manipulation is disabled in loop mode because it would be non-deterministic."
+            )
+            self.config.file_actions.enabled = False
         self.stop_event.clear()
         self.status = "starting"
         self.scanner_thread = threading.Thread(target=self._scanner_loop, daemon=True)
@@ -245,6 +252,7 @@ class Runner:
                 context=context,
                 error=None,
             )
+            file_action_result = self._apply_file_action(task.path, evaluation)
             return AnalyzeResult(
                 status="ok",
                 latency_ms=latency_ms,
@@ -252,6 +260,7 @@ class Runner:
                 context=context,
                 ok_nok=evaluation.ok_nok,
                 evaluation=evaluation,
+                file_action=file_action_result,
             )
         except Exception as exc:
             latency_ms = int((time.perf_counter() - start) * 1000)
@@ -265,7 +274,46 @@ class Runner:
                 context=None,
                 error=str(exc),
             )
-            return AnalyzeResult(status="error", latency_ms=latency_ms, error=str(exc), context=None, ok_nok=None)
+            return AnalyzeResult(
+                status="error",
+                latency_ms=latency_ms,
+                error=str(exc),
+                context=None,
+                ok_nok=None,
+                file_action=None,
+            )
+
+    def _apply_file_action(
+        self,
+        path: Path,
+        evaluation: NormalizedEvaluation,
+    ) -> FileActionResult:
+        try:
+            result = apply_file_action(path=path, evaluation=evaluation, cfg=self.config, now=datetime.now())
+        except Exception as exc:  # pragma: no cover - safety net around plugin-like call
+            self.logger.warning("File action failed unexpectedly for %s: %s", path, exc)
+            return FileActionResult(
+                applied=False,
+                operation="none",
+                source_path=str(path),
+                target_path=None,
+                reason=f"runner-file-action-exception:{exc}",
+                eval_status=evaluation.eval_status,
+            )
+
+        if self.config.file_actions.enabled:
+            if result.applied:
+                if result.operation == "move":
+                    self.logger.info("File moved: %s -> %s", result.source_path, result.target_path)
+                elif result.operation == "delete":
+                    self.logger.info("File deleted: %s", result.source_path)
+            elif result.reason and result.reason != "file-actions-disabled":
+                self.logger.warning(
+                    "File action not applied for %s: %s",
+                    result.source_path,
+                    result.reason,
+                )
+        return result
 
     def _extract_ok_nok(self, context: Optional[Dict[str, Any]]) -> Optional[str]:
         field = self.config.pekat.result_field
@@ -316,6 +364,10 @@ class Runner:
             "complete_time_s": evaluation.complete_time_s,
             "complete_time_ms": evaluation.complete_time_ms,
             "detected_count": evaluation.detected_count,
+            "file_action_applied": result.file_action.applied if result.file_action else False,
+            "file_action_operation": result.file_action.operation if result.file_action else "none",
+            "file_action_target": result.file_action.target_path if result.file_action else None,
+            "file_action_reason": result.file_action.reason if result.file_action else None,
             "error": result.error,
             "mode": self.config.mode,
         }

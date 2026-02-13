@@ -46,6 +46,33 @@ class BehaviorConfig(BaseModel):
     graceful_stop_timeout_sec: int = 10
 
 
+FileActionMode = Literal[
+    "delete_after_eval",
+    "move_by_result",
+    "move_ok_delete_nok",
+    "delete_ok_move_nok",
+]
+
+
+class FileActionPathConfig(BaseModel):
+    base_dir: str = ""
+    create_daily_folder: bool = False
+    create_hourly_folder: bool = False
+    include_result_prefix: bool = False
+    include_timestamp_suffix: bool = False
+    include_string: bool = False
+    string_value: str = ""
+
+
+class FileActionsConfig(BaseModel):
+    enabled: bool = False
+    mode: FileActionMode = "move_by_result"
+    unknown_as_nok: bool = True
+    collision_policy: Literal["auto_rename"] = "auto_rename"
+    ok: FileActionPathConfig = Field(default_factory=FileActionPathConfig)
+    nok: FileActionPathConfig = Field(default_factory=FileActionPathConfig)
+
+
 class PekatConfig(BaseModel):
     timeout_sec: int = 10
     retry: RetryConfig = Field(default_factory=RetryConfig)
@@ -117,6 +144,7 @@ class AppConfig(BaseModel):
 
     input: InputConfig = Field(default_factory=InputConfig)
     behavior: BehaviorConfig = Field(default_factory=BehaviorConfig)
+    file_actions: FileActionsConfig = Field(default_factory=FileActionsConfig)
     pekat: PekatConfig = Field(default_factory=PekatConfig)
     rest: RestConfig = Field(default_factory=RestConfig)
     projects_manager: ProjectsManagerConfig = Field(default_factory=ProjectsManagerConfig)

@@ -22,6 +22,28 @@ behavior:
   max_workers: 1
   graceful_stop_timeout_sec: 10
 
+file_actions:
+  enabled: false
+  mode: move_by_result
+  unknown_as_nok: true
+  collision_policy: auto_rename
+  ok:
+    base_dir: ""
+    create_daily_folder: false
+    create_hourly_folder: false
+    include_result_prefix: false
+    include_timestamp_suffix: false
+    include_string: false
+    string_value: ""
+  nok:
+    base_dir: ""
+    create_daily_folder: false
+    create_hourly_folder: false
+    include_result_prefix: false
+    include_timestamp_suffix: false
+    include_string: false
+    string_value: ""
+
 pekat:
   timeout_sec: 10
   retry:
