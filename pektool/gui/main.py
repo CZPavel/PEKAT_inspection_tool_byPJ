@@ -35,12 +35,15 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.config_tab = QtWidgets.QWidget()
         self.log_tab = QtWidgets.QWidget()
+        self.json_tab = QtWidgets.QWidget()
 
         self.tabs.addTab(self.config_tab, "Konfigurace")
         self.tabs.addTab(self.log_tab, "Log")
+        self.tabs.addTab(self.json_tab, "JSON")
 
         self._build_config_tab()
         self._build_log_tab()
+        self._build_json_tab()
 
         self.emitter = LogEmitter()
         self.emitter.message.connect(self._append_log)
@@ -180,8 +183,22 @@ class MainWindow(QtWidgets.QMainWindow):
         self.production_label = QtWidgets.QLabel("Production Mode: Unknown")
         self.data_preview_label = QtWidgets.QLabel("")
         self.count_label = QtWidgets.QLabel("0")
+        self.last_eval_time_label = QtWidgets.QLabel("-")
+        self.avg_eval_time_label = QtWidgets.QLabel("-")
         self.reset_counter_btn = QtWidgets.QPushButton("Reset counter and list")
         self.reset_counter_btn.clicked.connect(self._reset_counters)
+        self.nok_count_value = QtWidgets.QLabel("0")
+        self.ok_count_value = QtWidgets.QLabel("0")
+        self.nok_count_value.setAlignment(QtCore.Qt.AlignCenter)
+        self.ok_count_value.setAlignment(QtCore.Qt.AlignCenter)
+        self.nok_count_value.setMinimumHeight(70)
+        self.ok_count_value.setMinimumHeight(70)
+        self.nok_count_value.setStyleSheet(
+            "font-size: 28px; font-weight: 700; border: 1px solid #444; background: #2b1b1b;"
+        )
+        self.ok_count_value.setStyleSheet(
+            "font-size: 28px; font-weight: 700; border: 1px solid #444; background: #1f2f1f;"
+        )
 
         layout.addRow(btn_layout)
         layout.addRow("Connection", self.connection_label)
@@ -192,6 +209,19 @@ class MainWindow(QtWidgets.QMainWindow):
         count_layout.addWidget(self.count_label)
         count_layout.addWidget(self.reset_counter_btn)
         layout.addRow("Odesláno", count_layout)
+        layout.addRow("Posledni vyhodnoceni (ms)", self.last_eval_time_label)
+        layout.addRow("Prumerny cas (ms)", self.avg_eval_time_label)
+
+        ok_nok_layout = QtWidgets.QHBoxLayout()
+        nok_box = QtWidgets.QGroupBox("NOK")
+        ok_box = QtWidgets.QGroupBox("OK")
+        nok_box_layout = QtWidgets.QVBoxLayout(nok_box)
+        ok_box_layout = QtWidgets.QVBoxLayout(ok_box)
+        nok_box_layout.addWidget(self.nok_count_value)
+        ok_box_layout.addWidget(self.ok_count_value)
+        ok_nok_layout.addWidget(nok_box)
+        ok_nok_layout.addWidget(ok_box)
+        layout.addRow("Vyhodnoceni", ok_nok_layout)
 
         self.pm_tcp_enabled_check.toggled.connect(self._update_pm_controls)
         self.project_path_edit.textChanged.connect(self._update_pm_controls)
@@ -202,6 +232,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.log_view = QtWidgets.QTextEdit()
         self.log_view.setReadOnly(True)
         layout.addWidget(self.log_view)
+
+    def _build_json_tab(self) -> None:
+        layout = QtWidgets.QVBoxLayout(self.json_tab)
+        self.json_view = QtWidgets.QTextEdit()
+        self.json_view.setReadOnly(True)
+        self.json_view.setPlainText("{}")
+        layout.addWidget(self.json_view)
 
     def _select_folder(self) -> None:
         folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Vyberte složku")
@@ -348,11 +385,27 @@ class MainWindow(QtWidgets.QMainWindow):
             else:
                 self.production_label.setText("Production Mode: Unknown")
             self.data_preview_label.setText(connection.last_data)
+            if connection.last_eval_time_ms is None:
+                self.last_eval_time_label.setText("-")
+            else:
+                self.last_eval_time_label.setText(str(connection.last_eval_time_ms))
+            if connection.avg_eval_time_ms is None:
+                self.avg_eval_time_label.setText("-")
+            else:
+                self.avg_eval_time_label.setText(f"{connection.avg_eval_time_ms:.1f}")
+            self.nok_count_value.setText(str(connection.nok_count))
+            self.ok_count_value.setText(str(connection.ok_count))
+            self.json_view.setPlainText(connection.last_result_json or "{}")
         else:
             self.connection_label.setText("disconnected")
             self.production_label.setText("Production Mode: Unknown")
             self.data_preview_label.setText("")
             self.count_label.setText("0")
+            self.last_eval_time_label.setText("-")
+            self.avg_eval_time_label.setText("-")
+            self.nok_count_value.setText("0")
+            self.ok_count_value.setText("0")
+            self.json_view.setPlainText("{}")
 
         if not runner:
             self.send_status_label.setText("stopped")
@@ -380,7 +433,12 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.state.connection:
             self.state.connection.reset_counters()
         self.count_label.setText("0")
+        self.last_eval_time_label.setText("-")
+        self.avg_eval_time_label.setText("-")
+        self.nok_count_value.setText("0")
+        self.ok_count_value.setText("0")
         self.data_preview_label.setText("")
+        self.json_view.setPlainText("{}")
 
     def _update_pm_controls(self) -> None:
         has_path = bool(self.project_path_edit.text().strip())
