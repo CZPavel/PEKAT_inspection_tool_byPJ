@@ -1,0 +1,57 @@
+import cv2
+import numpy as np
+import os
+import datetime
+import time
+
+def draw_rectangles_to_img(detected_rectangles, img_to_write):
+    for rect in detected_rectangles:
+        label = rect["classNames"][0]["label"]
+        color = (0, 255, 0)  # default green color
+        if label == "NOK":
+            color = (0, 0, 255)  # red color for NOK rectangles
+            
+        start_point = (int(rect["x"]), int(rect["y"]))
+        end_point = (int(rect["x"] + rect["width"]), int(rect["y"] + rect["height"]))
+        
+        img_to_write = cv2.rectangle(img_to_write, start_point, end_point, color, 2)
+        
+    return img_to_write
+
+def main(context):
+    image_data = context["image"]
+    detected_rectangles = context["detectedRectangles"]
+    result = context["result"]
+    
+    # Create directory path based on the result
+    if result == False:
+        directory = "C:\\TEST\\"
+    else:
+        directory = "C:\\TEST\\"
+    
+    # Create result string
+    if result == False:
+        result_str = "NOK"
+    else:
+        result_str = "OK"
+        
+    # Ensure directory exists, if not, create it
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+    
+    # Create image from numpy array
+    image = np.array(image_data)
+    
+    # Draw rectangles on the image
+    img_with_rectangles = draw_rectangles_to_img(detected_rectangles, image)
+    
+    # Generate timestamp for image name
+    timestamp = datetime.datetime.now().strftime("%Y%m%d")
+    
+    timestamp2 = datetime.datetime.now().strftime("%H%M%S")
+    
+    # Save the image to the directory with timestamp in the filename
+    cv2.imwrite(f"{directory}{timestamp}_{result_str}_METR_{timestamp2}.jpg", img_with_rectangles)
+    
+    # Pocka x sekund, kdy by mel vyhodnocovany objekt odjet
+    time.sleep(1)

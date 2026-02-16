@@ -1,0 +1,253 @@
+import cv2
+import numpy as np
+import math
+
+######################### PROGRAM SETTINGS #########################
+LABEL_START = "Zacatek"   # název třídy 1
+LABEL_END   = "Konec"     # název třídy 2
+CROP_W = 800              # šířka fixního výřezu v pixelech
+CROP_H = 240              # výška fixního výřezu v pixelech
+SCALE  = 1.0              # měřítko při rotaci (ponechat 1.0)
+HORIZ_TOL_PX = 0.5        # tolerovaná odchylka v pixelech po rotaci
+####################################################################
+
+
+def main(context, module_item=None):
+    """
+    - Najde detekce tříd LABEL_START a LABEL_END (robustněji).
+    - Natočí obrázek tak, aby spojnice jejich středů byla horizontální (self-check).
+    - Vyřízne fixní výřez 800x240 centrovaný do středu spojnice po rotaci.
+    """
+    img = context.get('image', None)
+    rects = context.get('detectedRectangles', [])
+
+    if img is None or not isinstance(img, np.ndarray):
+        print("[Code] Nebyl nalezen validní obraz v context['image'].")
+        return
+
+    # 1) Najdi obdélník pro "Zacatek" a "Konec" – preferuj top-level label/className
+    start_candidates = _collect_label_rects(rects, LABEL_START)
+    end_candidates   = _collect_label_rects(rects, LABEL_END)
+
+    rect_start = start_candidates[0] if start_candidates else None
+    rect_end   = _pick_distinct(end_candidates, rect_start)
+
+    if rect_start is None or rect_end is None:
+        print(f"[Code] Chybí požadované třídy nebo jsou nerozlišitelné. "
+              f"Zacatek: {'OK' if rect_start else 'NENI'}, "
+              f"Konec: {'OK' if rect_end else 'NENI'}. Snímek se nemění.")
+        return
+
+    # 2) Spočti středy (v původních souřadnicích)
+    c1 = _rect_center(rect_start)
+    c2 = _rect_center(rect_end)
+
+    # 3) Primární úhel pro horizont (OpenCV: kladný = proti směru hodin)
+    dx = c2[0] - c1[0]
+    dy = c2[1] - c1[1]
+    angle_rad = math.atan2(dy, dx)
+    angle_deg_primary = - math.degrees(angle_rad)  # rotace, která má z vektoru (dx,dy) udělat horizont
+
+    # 4) RotateBound s ověřením horizontality (zkusíme 1–2 varianty a vybereme lepší)
+    rotated1, M1 = _rotate_bound(img, angle_deg_primary, scale=SCALE)
+    c1_r1 = _apply_affine(M1, c1)
+    c2_r1 = _apply_affine(M1, c2)
+    dy1 = abs(c2_r1[1] - c1_r1[1])
+
+    # Alternativní varianta (pro případ neočekávané orientace) – o opačný úhel
+    rotated2, M2 = _rotate_bound(img, -angle_deg_primary, scale=SCALE)
+    c1_r2 = _apply_affine(M2, c1)
+    c2_r2 = _apply_affine(M2, c2)
+    dy2 = abs(c2_r2[1] - c1_r2[1])
+
+    # Vyber lepší (menší |Δy|)
+    if dy1 <= dy2:
+        rotated_img, M = rotated1, M1
+        c1_rot, c2_rot = c1_r1, c2_r1
+        chosen_angle = angle_deg_primary
+        dy_after = dy1
+    else:
+        rotated_img, M = rotated2, M2
+        c1_rot, c2_rot = c1_r2, c2_r2
+        chosen_angle = -angle_deg_primary
+        dy_after = dy2
+
+    if dy_after > HORIZ_TOL_PX:
+        print(f"[Code] Upozornění: po rotaci zůstává Δy={dy_after:.3f}px (> {HORIZ_TOL_PX}px). "
+              f"Zkontrolujte prosím definici středů/koordinátů v předchozím modulu.")
+
+    # 5) Střed spojnice po rotaci = střed budoucího výřezu
+    mid_x = (c1_rot[0] + c2_rot[0]) / 2.0
+    mid_y = (c1_rot[1] + c2_rot[1]) / 2.0
+
+    # 6) Ořez fixní velikosti CROP_W x CROP_H, centrovaný v (mid_x, mid_y)
+    cropped = _crop_center_with_padding(
+        rotated_img,
+        (int(round(mid_x)), int(round(mid_y))),
+        CROP_W, CROP_H
+    )
+
+    # 7) Výstup zpět do kontextu
+    context['image'] = cropped
+    # (volitelně) context['last_angle_deg'] = chosen_angle  # pro debug
+
+
+# ------------ Pomocné funkce ------------
+
+def _top_label_of_rect(r):
+    """Vrátí top-level název třídy obdélníku, pokud existuje (r['label'] / r['className'])."""
+    if isinstance(r, dict):
+        return r.get('label') or r.get('className') or r.get('name')
+    return None
+
+def _confidence_for_label(r, label):
+    """
+    Zjistí confidence pro daný label:
+    - přednostně top-level r['confidence'] pokud r odpovídá přímo dané třídě,
+    - jinak hledá v r['classNames'] položku s daným labelem.
+    """
+    top = _top_label_of_rect(r)
+    if top == label:
+        return float(r.get('confidence', 0.0))
+    # fallback: uvnitř classNames
+    best = 0.0
+    for cn in r.get('classNames', []) or []:
+        if isinstance(cn, dict) and cn.get('label') == label:
+            best = max(best, float(cn.get('confidence', 0.0)))
+    return best
+
+def _collect_label_rects(rectangles, label):
+    """
+    Vrátí seřazený seznam kandidátů obdélníků pro daný label.
+    1) Nejprve ty, které mají top-level label == požadovanému labelu.
+    2) Pokud žádné takové nejsou, vezme ty, kde se label vyskytuje v classNames.
+    Seřazení podle (desc) confidence pro daný label.
+    """
+    direct, fallback = [], []
+    for r in rectangles:
+        conf = _confidence_for_label(r, label)
+        if conf <= 0.0:
+            continue
+        if _top_label_of_rect(r) == label:
+            direct.append((conf, r))
+        else:
+            fallback.append((conf, r))
+    if direct:
+        direct.sort(key=lambda x: x[0], reverse=True)
+        return [r for _, r in direct]
+    fallback.sort(key=lambda x: x[0], reverse=True)
+    return [r for _, r in fallback]
+
+def _pick_distinct(candidates, other_rect):
+    """
+    Vezme nejlepší kandidát z 'candidates', který není shodný s 'other_rect'.
+    Porovnává id nebo (x,y,w,h).
+    """
+    if not candidates:
+        return None
+    if other_rect is None:
+        return candidates[0]
+    oid = other_rect.get('id', None)
+    ox, oy = other_rect.get('x'), other_rect.get('y')
+    ow, oh = other_rect.get('width'), other_rect.get('height')
+
+    for r in candidates:
+        if r.get('id', None) is not None and oid is not None:
+            if r.get('id') == oid:
+                continue
+        if (r.get('x'), r.get('y'), r.get('width'), r.get('height')) == (ox, oy, ow, oh):
+            continue
+        return r
+    # Když jsou všechny shodné (nepravděpodobné), vrať aspoň první
+    return candidates[0]
+
+def _rect_center(r):
+    """Vypočti střed obdélníku (cx, cy) z položky detekce.
+       Očekává, že r['x'], r['y'] jsou levý-horní roh; pokud by r už center obsahoval,
+       můžete sem snadno doplnit preferenci (např. r.get('centerX'), r.get('centerY'))."""
+    if 'centerX' in r and 'centerY' in r:
+        return (float(r['centerX']), float(r['centerY']))
+    x = float(r.get('x', 0.0))
+    y = float(r.get('y', 0.0))
+    w = float(r.get('width', 0.0))
+    h = float(r.get('height', 0.0))
+    return (x + w / 2.0, y + h / 2.0)
+
+def _rotate_bound(image, angle_deg, scale=1.0):
+    """
+    Rotace s rozšířením plátna tak, aby nic nebylo useknuté.
+    Rotujeme okolo středu původního obrazu a dopočítáme nové rozměry i translaci.
+    Vrací (rotated_image, M), kde M je výsledná 2x3 affine matice použitá pro warpAffine.
+    """
+    (h, w) = image.shape[:2]
+    (cX, cY) = (w / 2.0, h / 2.0)
+
+    M = cv2.getRotationMatrix2D((cX, cY), angle_deg, scale)
+
+    cos = abs(M[0, 0])
+    sin = abs(M[0, 1])
+    nW = int((h * sin) + (w * cos))
+    nH = int((h * cos) + (w * sin))
+
+    M[0, 2] += (nW / 2.0) - cX
+    M[1, 2] += (nH / 2.0) - cY
+
+    rotated = cv2.warpAffine(
+        image, M, (nW, nH),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=0
+    )
+    return rotated, M
+
+def _apply_affine(M, pt):
+    """Aplikuje 2x3 afinní matici M na bod (x, y) -> (x', y')."""
+    x, y = float(pt[0]), float(pt[1])
+    x_p = M[0, 0] * x + M[0, 1] * y + M[0, 2]
+    y_p = M[1, 0] * x + M[1, 1] * y + M[1, 2]
+    return (x_p, y_p)
+
+def _crop_center_with_padding(img, center_xy, crop_w, crop_h):
+    """
+    Vyřízne oblast crop_w x crop_h centrovanou na center_xy.
+    Pokud výřez přesahuje obraz, doplní chybějící části černým okrajem (padding),
+    aby výstup měl vždy přesný rozměr.
+    """
+    H, W = img.shape[:2]
+    cx, cy = center_xy
+
+    x1 = int(round(cx - crop_w / 2))
+    y1 = int(round(cy - crop_h / 2))
+    x2 = x1 + crop_w
+    y2 = y1 + crop_h
+
+    src_x1 = max(0, x1)
+    src_y1 = max(0, y1)
+    src_x2 = min(W, x2)
+    src_y2 = min(H, y2)
+
+    if src_x1 >= src_x2 or src_y1 >= src_y2:
+        # čistý padding, kdyby výřez úplně minul obrázek
+        if img.ndim == 3:
+            return np.zeros((crop_h, crop_w, img.shape[2]), dtype=img.dtype)
+        else:
+            return np.zeros((crop_h, crop_w), dtype=img.dtype)
+
+    patch = img[src_y1:src_y2, src_x1:src_x2].copy()
+
+    pad_left   = src_x1 - x1
+    pad_top    = src_y1 - y1
+    pad_right  = x2 - src_x2
+    pad_bottom = y2 - src_y2
+
+    patch = cv2.copyMakeBorder(
+        patch, pad_top, pad_bottom, pad_left, pad_right,
+        borderType=cv2.BORDER_CONSTANT, value=0
+    )
+
+    # Jistota přesného rozměru
+    patch = patch[0:crop_h, 0:crop_w]
+    if patch.shape[0] != crop_h or patch.shape[1] != crop_w:
+        patch = cv2.resize(patch, (crop_w, crop_h), interpolation=cv2.INTER_LINEAR)
+
+    return patch

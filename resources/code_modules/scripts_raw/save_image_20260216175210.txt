@@ -1,0 +1,46 @@
+import cv2
+import numpy as np
+import os
+import datetime
+import time
+
+
+def main(context):
+    image_data = context["image"]
+    result = context["result"]
+    
+    # Vycte popisek detekovane tridy prvniho rectanglu, v tomto pripade vysledku tridiciho klasifikatoru
+    for item in context['detectedRectangles']:
+        rectangel_label = str(item['classNames'][0]['label'])
+
+    # Generate timestamp for image and folder name
+    timestamp = datetime.datetime.now().strftime("%Y%m%d")
+    
+    timestamp2 = datetime.datetime.now().strftime("%H%M%S")
+     
+    
+    # Create directory path based on the result
+    if result == False:
+        directory = f"C:\\NALEVKA_test\\FALSE\\NALEVKA_{timestamp}\\"
+    else:
+        directory = f"C:\\NALEVKA_test\\NALEVKA_{timestamp}\\"
+    
+    # Create result string
+    if result == False:
+        result_str = "NOK"
+    else:
+        result_str = "OK"
+        
+    # Ensure directory exists, if not, create it
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+    
+    # Create image from numpy array
+    image = np.array(image_data)
+    
+    # Save the image to the directory with timestamp in the filename
+    cv2.imwrite(f"{directory}{timestamp}_{result_str}_Nalevka_{rectangel_label}_ORIG_{timestamp2}.png", image)
+    
+    # Pocka 5 sekund, kdy by mel vyhodnocovany objekt odjet
+    #time.sleep(10)
+    

@@ -1,0 +1,20 @@
+import cv2
+import skimage
+import numpy as np
+
+
+    
+def resize_after_detecting_vin(context):
+    
+    if len(context["detectedRectangles"]) == 1:
+        context["image_original"] = context["image"].copy()
+        x, y = context["detectedRectangles"][0]["x"], context["detectedRectangles"][0]["y"]
+        width, height = context["detectedRectangles"][0]["width"], context["detectedRectangles"][0]["height"]
+        print(context["detectedRectangles"][0]["x"])
+        context["image"] = context["image"][y:y+height, x:x+width]
+    else:
+        context["exit"] = True
+    
+    
+def main(context):
+    resize_after_detecting_vin(context)

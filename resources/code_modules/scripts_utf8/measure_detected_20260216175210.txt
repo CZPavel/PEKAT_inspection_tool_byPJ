@@ -1,0 +1,324 @@
+import cv2
+import __main__
+
+# ==========================================
+# Výchozí parametry (lze přepsat v Operator UI)
+# ==========================================
+DEFAULTS = {
+    # Jména tříd (A je referenční "ryska", B je "hladina")
+    "class_a_label": "Stredni_ryska",
+    "class_b_label": "Hladina",
+
+    # Filtrování kandidátů
+    "min_conf": 0.30,          # minimální confidence
+
+    # Přepočet na mm (0 = nepočítat)
+    "mm_per_px": 0.0,
+
+    # Prahy rozmezí hladiny (volitelné)
+    # Použije se buď PX, nebo MM varianta podle 'use_mm_thresholds'
+    "min_level_px": 40,      # např. -20.0
+    "max_level_px": None,      # např. +20.0
+    "min_level_mm": None,
+    "max_level_mm": None,
+    "use_mm_thresholds": False,
+
+    # Chování při porušení rozmezí
+    "override_result": True,   # když je mimo rozsah -> nastav context['result']=False
+
+    # Debug overlay
+    "debug": True,             # vykreslit čáry a popisek
+    "line_thickness": 2,       # tloušťka čar
+    "font_scale": 0.7,         # velikost textu
+    "font_thickness": 2,       # tloušťka písma
+}
+
+# ==========================================
+# Pomocné čtečky a výběry
+# ==========================================
+def get_param(context, key):
+    oi = context.get("operatorInput", {}) or {}
+    return oi.get(key, DEFAULTS[key])
+
+def _labels_from_classNames(r):
+    """
+    Vrátí {label: confidence} z r['classNames'], ať už je to list dictů
+    (běžný PEKAT formát) nebo něco jednoduššího.
+    """
+    out = {}
+    cn = r.get("classNames")
+    if isinstance(cn, (list, tuple)):
+        # očekáváme list slovníků {label, confidence, ...}
+        for item in cn:
+            if isinstance(item, dict) and ("label" in item):
+                lbl = str(item.get("label"))
+                conf = float(item.get("confidence", r.get("confidence", 0.0)))
+                out[lbl] = max(out.get(lbl, 0.0), conf)
+            else:
+                # fallback: item je možná string
+                if isinstance(item, str):
+                    out[item] = max(out.get(item, 0.0), float(r.get("confidence", 0.0)))
+    elif isinstance(cn, dict):
+        # výjimečně může být dict; pokus o label
+        lbl = cn.get("label")
+        if lbl:
+            out[str(lbl)] = float(cn.get("confidence", r.get("confidence", 0.0)))
+    else:
+        # žádné classNames -> nic
+        pass
+    return out
+
+def _rect_conf_for_label(r, target_label):
+    """
+    Vrátí reprezentativní confidence pro rectangle r vzhledem k target_label.
+    Priorita: confidence položky odpovídajícího labelu z classNames, jinak r['confidence'].
+    """
+    lbl_map = _labels_from_classNames(r)
+    if target_label in lbl_map:
+        return float(lbl_map[target_label])
+    return float(r.get("confidence", 0.0))
+
+def pick_best_by_label(rects, target_label, min_conf=0.0):
+    """
+    Z rects vybere obdélník obsahující target_label (v classNames) s nejvyšší confidence.
+    """
+    cands = []
+    for r in rects:
+        lbl_map = _labels_from_classNames(r)
+        if target_label not in lbl_map:
+            continue
+        conf = _rect_conf_for_label(r, target_label)
+        if conf < float(min_conf):
+            continue
+        cands.append((conf, r))
+    if not cands:
+        return None
+    cands.sort(key=lambda t: t[0], reverse=True)
+    return cands[0][1]
+
+def rect_center(r):
+    x = float(r.get("x", 0))
+    y = float(r.get("y", 0))
+    w = float(r.get("width", 0))
+    h = float(r.get("height", 0))
+    return (x + w / 2.0, y + h / 2.0)
+
+def is_same_rectangle(a, b):
+    if a is None or b is None:
+        return False
+    if "id" in a and "id" in b:
+        return a["id"] == b["id"]
+    return (a.get("x"), a.get("y"), a.get("width"), a.get("height")) == \
+           (b.get("x"), b.get("y"), b.get("width"), b.get("height"))
+
+# ==========================================
+# Debug kreslení
+# ==========================================
+def draw_debug(image, ay, by, signed_px, signed_mm,
+               class_a, class_b, line_thickness=2,
+               font_scale=0.7, font_thickness=2):
+    """
+    Vykreslí horizontální čáry na výškách středů A a B a popisek s podepsanou vzdáleností.
+    Bez volby barev (PEKAT default OpenCV).
+    """
+    if image is None:
+        return
+
+    h, w = image.shape[:2]
+    yA = int(round(ay))
+    yB = int(round(by))
+
+    # Čára pro A (ryska)
+    cv2.line(image, (0, yA), (w - 1, yA), (0, 0, 255), thickness=line_thickness)  # BGR
+    # Čára pro B (hladina)
+    cv2.line(image, (0, yB), (w - 1, yB), (0, 255, 0), thickness=line_thickness)
+
+    # Text v levém horním rohu
+    text = f"ΔY (B vs A) = {signed_px:.2f} px"
+    if signed_mm is not None:
+        text += f" | {signed_mm:.3f} mm"
+
+    cv2.putText(image, text, (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255),
+                thickness=font_thickness, lineType=cv2.LINE_AA)
+
+    # Popis tříd na okrajích čar (volitelně)
+    cv2.putText(image, f"A:{class_a}", (10, max(0, yA - 6)),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1, cv2.LINE_AA)
+    cv2.putText(image, f"B:{class_b}", (10, max(0, yB - 6)),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
+
+# ==========================================
+# Hlavní funkce pro PEKAT Code modul
+# ==========================================
+def main(context):
+    """
+    Měřená veličina: podepsaná vertikální vzdálenost ΔY mezi horizontálními středy dvou tříd:
+      A (referenční „Stredni_ryska“) a B („Hladina“).
+
+    Konvence znaménka (důležité!):
+      - ΔY_px = y_A - y_B
+      - Pokud je B nad A (tj. y_B < y_A), pak ΔY_px > 0 (kladná hodnota).
+      - Pokud je B pod A (y_B > y_A), pak ΔY_px < 0 (záporná hodnota).
+
+    Výstupy:
+      - context['distance_px']         : absolutní vzdálenost v px (float)
+      - context['signed_distance_px']  : podepsaná vzdálenost v px (float)
+      - context['distance_mm']         : absolutní vzdálenost v mm (float nebo None)
+      - context['signed_distance_mm']  : podepsaná vzdálenost v mm (float nebo None)
+      - context['measurement']         : detailní JSON o měření
+      - context['label_measurement']   : krátký text pro UI
+      - (volitelně) context['result']  : přepsán na False, je-li mimo dovolené rozmezí
+    """
+    img = context.get("image", None)
+    rects = context.get("detectedRectangles", []) or []
+
+    # Parametry
+    class_a = get_param(context, "class_a_label")
+    class_b = get_param(context, "class_b_label")
+    min_conf = float(get_param(context, "min_conf"))
+    mm_per_px = float(get_param(context, "mm_per_px"))
+
+    min_level_px = get_param(context, "min_level_px")
+    max_level_px = get_param(context, "max_level_px")
+    min_level_mm = get_param(context, "min_level_mm")
+    max_level_mm = get_param(context, "max_level_mm")
+    use_mm_thresholds = bool(get_param(context, "use_mm_thresholds"))
+    override_result = bool(get_param(context, "override_result"))
+
+    debug = bool(get_param(context, "debug"))
+    line_thickness = int(get_param(context, "line_thickness"))
+    font_scale = float(get_param(context, "font_scale"))
+    font_thickness = int(get_param(context, "font_thickness"))
+
+    # Vstupní kontrola
+    if img is None:
+        context["label_measurement"] = "Měření: chybí context['image']."
+        context["distance_px"] = None
+        context["signed_distance_px"] = None
+        context["distance_mm"] = None
+        context["signed_distance_mm"] = None
+        context["measurement"] = {"status": "no_image"}
+        return
+
+    # Najdi nejlepší boxy pro A i B
+    A = pick_best_by_label(rects, class_a, min_conf=min_conf)
+    B = pick_best_by_label(rects, class_b, min_conf=min_conf)
+
+    # Ošetření shodného obdélníku (pokud by k němu došlo)
+    if is_same_rectangle(A, B):
+        B = None
+
+    missing = []
+    if A is None:
+        missing.append(class_a)
+    if B is None:
+        missing.append(class_b)
+
+    if missing:
+        context["distance_px"] = None
+        context["signed_distance_px"] = None
+        context["distance_mm"] = None
+        context["signed_distance_mm"] = None
+        context["measurement"] = {
+            "status": "missing",
+            "missing_classes": missing,
+            "min_conf": min_conf,
+            "class_a": class_a,
+            "class_b": class_b,
+        }
+        context["label_measurement"] = f"Měření: chybí třída(e): {', '.join(missing)} (min_conf={min_conf:.2f})."
+        return
+
+    # Výpočet středů a vzdáleností
+    ax, ay = rect_center(A)
+    bx, by = rect_center(B)
+
+    signed_px = float(ay - by)         # kladné pokud B nad A
+    abs_px = float(abs(signed_px))
+
+    if mm_per_px > 0.0:
+        signed_mm = signed_px * mm_per_px
+        abs_mm = abs(signed_mm)
+    else:
+        signed_mm = None
+        abs_mm = None
+
+    # Ulož výsledky
+    context["signed_distance_px"] = signed_px
+    context["distance_px"] = abs_px
+    context["signed_distance_mm"] = signed_mm if signed_mm is not None else None
+    context["distance_mm"] = abs_mm if abs_mm is not None else None
+
+    context["measurement"] = {
+        "status": "ok",
+        "classes": {"A": class_a, "B": class_b},
+        "min_conf": min_conf,
+        "mm_per_px": mm_per_px,
+        "rects": {
+            "A": {
+                "x": int(A.get("x", 0)), "y": int(A.get("y", 0)),
+                "w": int(A.get("width", 0)), "h": int(A.get("height", 0)),
+                "confidence": float(_rect_conf_for_label(A, class_a)),
+                "id": A.get("id", None),
+            },
+            "B": {
+                "x": int(B.get("x", 0)), "y": int(B.get("y", 0)),
+                "w": int(B.get("width", 0)), "h": int(B.get("height", 0)),
+                "confidence": float(_rect_conf_for_label(B, class_b)),
+                "id": B.get("id", None),
+            },
+        },
+        "centers": {"A": [ax, ay], "B": [bx, by]},
+        "signed_distance_px": signed_px,
+        "distance_px": abs_px,
+        "signed_distance_mm": signed_mm,
+        "distance_mm": abs_mm,
+    }
+
+    # Debug overlay
+    if debug:
+        draw_debug(img, ay, by, signed_px, signed_mm, class_a, class_b,
+                   line_thickness=line_thickness,
+                   font_scale=font_scale,
+                   font_thickness=font_thickness)
+        # Překreslený obrázek vracíme zpět do contextu
+        context["image"] = img
+
+    # Poskládej krátký text do UI
+    if signed_mm is not None:
+        context["label_measurement"] = (
+            f"ΔY(B vs A) = {signed_px:.2f} px | {signed_mm:.3f} mm "
+            f"(mm/px={mm_per_px:.6f})"
+        )
+    else:
+        context["label_measurement"] = f"ΔY(B vs A) = {signed_px:.2f} px"
+
+    # Kontrola rozmezí a případné přepsání výsledku
+    def in_range(value, vmin, vmax):
+        if (vmin is not None) and (value < float(vmin)):
+            return False
+        if (vmax is not None) and (value > float(vmax)):
+            return False
+        return True
+
+    out_of_range = False
+    if use_mm_thresholds and (mm_per_px > 0.0):
+        # prahy v mm, porovnáváme s PODEPSANOU hodnotou
+        if (min_level_mm is not None) or (max_level_mm is not None):
+            out_of_range = not in_range(signed_mm, min_level_mm, max_level_mm)
+            context["measurement"]["limits_used"] = {
+                "unit": "mm", "min": min_level_mm, "max": max_level_mm
+            }
+    else:
+        # prahy v px, porovnáváme s PODEPSANOU hodnotou
+        if (min_level_px is not None) or (max_level_px is not None):
+            out_of_range = not in_range(signed_px, min_level_px, max_level_px)
+            context["measurement"]["limits_used"] = {
+                "unit": "px", "min": min_level_px, "max": max_level_px
+            }
+
+    if out_of_range:
+        context["label_measurement"] += "  |  MIMO ROZSAH"
+        if override_result:
+            context["result"] = False

@@ -1,0 +1,360 @@
+"""
+AI_TRIGGER_PEKAT_UNIVERSAL_V06
+
+Režimy:
+- mode="on_classes": trigger podle tříd (klasifikátor/detektor)
+- mode="on_result":  trigger podle context['result'] (OK/NG) z Evaluace
+
+Zdroj tříd:
+- source_select="CLASSIFIER" / "DETECTOR" / "ANY"
+  * CLASSIFIER: bere se pouze top-1 (první) třída
+  * DETECTOR:   bere se množina všech detekovaných tříd
+
+Kolize v jednom snímku:
+- Globálně má reset prioritu (RESET_HAS_PRIORITY=True)
+- Speciálně pro DETECTOR můžeš nastavit preferenci, když jsou současně allowed i reset:
+  DETECTOR_BOTH_POLICY="reset" nebo "allowed"
+
+Požadované chování:
+- CAPTURE propustí přesně FRAME_NUMBER snímků s platným allowed
+- Po CAPTURE (nebo při ztrátě allowed / příchodu resetu) se přepne do WAIT_RESET a blokuje
+- WAIT_RESET blokuje, dokud se nepotvrdí reset (OUT); resetovací snímek se nepropouští
+"""
+
+import __main__
+
+# =========================
+# KONFIGURACE – DEFAULTY
+# (lze přepsat z OperatorInput; viz níže)
+# =========================
+
+# --- Základní režim ---
+MODE_DEFAULT = "on_result"         # UI: mode ∈ {"on_classes","on_result"}
+
+# --- Volba zdroje tříd pro on_classes ---
+SOURCE_SELECT_DEFAULT = "ANY"       # UI: source_select ∈ {"CLASSIFIER","DETECTOR","ANY"}
+
+# --- Třídy pro on_classes ---
+ALLOWED_CLASSES_DEFAULT = ["POZICE"]       # UI: allowed_classes (CSV), např. "POZICE,OBJEKT"
+RESET_CLASSES_DEFAULT   = ["OUT"]          # UI: reset_classes (CSV), např. "OUT,PODLAHA"
+
+# --- Politiky kolizí / interpretace ---
+RESET_HAS_PRIORITY_DEFAULT = True          # UI: reset_has_priority (True/False)
+DETECTOR_BOTH_POLICY_DEFAULT = "reset"     # UI: detector_both_policy ∈ {"reset","allowed"}
+
+# --- on_result mapování ---
+RESULT_OK_IS_ALLOWED_DEFAULT = True        # UI: result_ok_is_allowed (True/False)
+# True  => OK -> allowed, NG -> reset
+# False => OK -> reset,   NG -> allowed
+
+# --- Časování ---
+LOOP_NUMBER_DEFAULT  = 6                   # UI: loop_number (počet snímků debounce)
+FRAME_NUMBER_DEFAULT = 3                   # UI: frame_number (počet snímků k propustění v CAPTURE)
+
+# --- Ladění ---
+VERBOSE_DEFAULT = True                     # UI: verbose (True/False)
+
+# =========================
+# Pomocné utilitky
+# =========================
+def _parse_bool(val, default=False):
+    if isinstance(val, bool): return val
+    if isinstance(val, (int,float)): return bool(val)
+    if isinstance(val, str):
+        v = val.strip().lower()
+        if v in ("1","true","t","yes","y","on"):  return True
+        if v in ("0","false","f","no","n","off",""): return False
+    return default
+
+def _parse_csv_to_list(s, default_list):
+    if isinstance(s, str):
+        items = [x.strip() for x in s.split(",") if x.strip()]
+        return items
+    if isinstance(s, (list, tuple)):
+        return [str(x).strip() for x in s if str(x).strip()]
+    return list(default_list)
+
+def _norm_src_type(raw) -> str:
+    """Normalizace typu zdroje na 'CLASSIFIER' / 'DETECTOR' / jinak uppercased."""
+    if raw is None: return ""
+    t = str(raw).strip().upper()
+    if "CLASSIF" in t: return "CLASSIFIER"   # CLASSIFIER / CLASSIFICATION
+    if "DETECT"  in t: return "DETECTOR"     # DETECTOR  / DETECTION
+    return t
+
+def _get_top_label_from_classifier(rect) -> str:
+    """
+    Z klasifikátoru bereme výhradně TOP-1 (stejně jako u tebe dříve).
+    classNames může být list stringů nebo list objektů s klíčem 'label'.
+    """
+    class_names = rect.get("classNames", [])
+    if not isinstance(class_names, list) or not class_names:
+        return ""
+    first = class_names[0]
+    if isinstance(first, dict):
+        return str(first.get("label","")).strip()
+    return str(first).strip()
+
+def _get_all_labels_from_detector(rect) -> list:
+    """
+    Z detektoru bereme množinu všech tříd. classNames: list stringů nebo dictů {'label':...}.
+    """
+    out = []
+    class_names = rect.get("classNames", [])
+    if isinstance(class_names, list):
+        for item in class_names:
+            if isinstance(item, dict):
+                lab = str(item.get("label","")).strip()
+            else:
+                lab = str(item).strip()
+            if lab:
+                out.append(lab)
+    return out
+
+# =========================
+# Načtení parametrů (OperatorInput → override defaultů)
+# =========================
+def _get_params(context):
+    oi = context.get("operatorInput") or {}
+
+    P = {
+        "MODE": str(oi.get("mode", MODE_DEFAULT)).strip(),
+        "SOURCE_SELECT": str(oi.get("source_select", SOURCE_SELECT_DEFAULT)).strip().upper(),
+        "ALLOWED_CLASSES": _parse_csv_to_list(oi.get("allowed_classes", ALLOWED_CLASSES_DEFAULT), ALLOWED_CLASSES_DEFAULT),
+        "RESET_CLASSES":   _parse_csv_to_list(oi.get("reset_classes", RESET_CLASSES_DEFAULT), RESET_CLASSES_DEFAULT),
+        "RESET_HAS_PRIORITY": _parse_bool(oi.get("reset_has_priority", RESET_HAS_PRIORITY_DEFAULT), RESET_HAS_PRIORITY_DEFAULT),
+        "DETECTOR_BOTH_POLICY": str(oi.get("detector_both_policy", DETECTOR_BOTH_POLICY_DEFAULT)).strip().lower(),
+        "RESULT_OK_IS_ALLOWED": _parse_bool(oi.get("result_ok_is_allowed", RESULT_OK_IS_ALLOWED_DEFAULT), RESULT_OK_IS_ALLOWED_DEFAULT),
+        "LOOP_NUMBER": int(oi.get("loop_number", LOOP_NUMBER_DEFAULT)) if str(oi.get("loop_number", "")).strip() != "" else LOOP_NUMBER_DEFAULT,
+        "FRAME_NUMBER": int(oi.get("frame_number", FRAME_NUMBER_DEFAULT)) if str(oi.get("frame_number", "")).strip() != "" else FRAME_NUMBER_DEFAULT,
+        "VERBOSE": _parse_bool(oi.get("verbose", VERBOSE_DEFAULT), VERBOSE_DEFAULT),
+    }
+
+    # Normalizace pro SOURCE_SELECT
+    P["SOURCE_SELECT"] = _norm_src_type(P["SOURCE_SELECT"]) if P["SOURCE_SELECT"] else SOURCE_SELECT_DEFAULT
+    # Normalizace politiky detektoru
+    if P["DETECTOR_BOTH_POLICY"] not in ("reset","allowed"):
+        P["DETECTOR_BOTH_POLICY"] = DETECTOR_BOTH_POLICY_DEFAULT
+
+    return P
+
+# =========================
+# Stavové proměnné (globální, per instance)
+# =========================
+STATE_IDLE       = "IDLE"
+STATE_DEBOUNCE   = "DEBOUNCE"
+STATE_CAPTURE    = "CAPTURE"
+STATE_WAIT_RESET = "WAIT_RESET"
+
+def _init_globals():
+    if "AI_STATE"  not in dir(__main__): __main__.AI_STATE  = STATE_IDLE
+    if "DEB_CNT"   not in dir(__main__): __main__.DEB_CNT   = 0
+    if "CAP_CNT"   not in dir(__main__): __main__.CAP_CNT   = 0
+
+def _reset_debounce(): __main__.DEB_CNT = 0
+def _reset_capture():  __main__.CAP_CNT = 0
+
+# =========================
+# Vyhodnocení allowed/reset z tříd (on_classes)
+# =========================
+def _eval_on_classes(context, P):
+    """
+    Vrací (allowed_found, reset_found).
+    - CLASSIFIER: bere jen top-1
+    - DETECTOR:   bere všechny; allowed = všechny ALLOWED_CLASSES; reset = jakákoliv z RESET_CLASSES
+                  navíc, pokud jsou v detektoru allowed i reset současně, uplatní se DETECTOR_BOTH_POLICY.
+    - ANY: kombinuje oba zdroje; globálně může platit RESET_HAS_PRIORITY.
+    """
+    rects = context.get("detectedRectangles") or []
+    src_sel = P["SOURCE_SELECT"]
+    allowed_found_cls = False
+    reset_found_cls   = False
+    allowed_found_det = False
+    reset_found_det   = False
+    det_labels = set()
+
+    for r in rects:
+        st = _norm_src_type((r.get("source") or {}).get("type", r.get("type","")))
+        if src_sel not in ("ANY", st):   # filtr na zdroj
+            continue
+
+        if st == "CLASSIFIER":
+            top = _get_top_label_from_classifier(r)
+            if top:
+                if top in P["RESET_CLASSES"]:
+                    reset_found_cls = True
+                elif top in P["ALLOWED_CLASSES"]:
+                    allowed_found_cls = True
+
+        elif st == "DETECTOR":
+            labs = _get_all_labels_from_detector(r)
+            for lab in labs:
+                det_labels.add(lab)
+
+    # DETECTOR vyhodnocení
+    if src_sel in ("DETECTOR","ANY"):
+        if P["ALLOWED_CLASSES"] and set(P["ALLOWED_CLASSES"]).issubset(det_labels):
+            allowed_found_det = True
+        if any(l in P["RESET_CLASSES"] for l in det_labels):
+            reset_found_det = True
+        # Když v detektoru současně allowed i reset:
+        if allowed_found_det and reset_found_det:
+            if P["DETECTOR_BOTH_POLICY"] == "reset":
+                # reset má přednost v rámci DETECTORu
+                allowed_found_det = False
+            else:  # "allowed"
+                reset_found_det = False
+
+    # Sloučení (ANY) nebo jednotlivé zdroje
+    allowed_found = False
+    reset_found   = False
+
+    if src_sel == "CLASSIFIER":
+        allowed_found = allowed_found_cls
+        reset_found   = reset_found_cls
+    elif src_sel == "DETECTOR":
+        allowed_found = allowed_found_det
+        reset_found   = reset_found_det
+    else:  # ANY – sloučit
+        allowed_found = allowed_found_cls or allowed_found_det
+        reset_found   = reset_found_cls   or reset_found_det
+        # Globální priorita resetu (volitelné)
+        if P["RESET_HAS_PRIORITY"] and allowed_found and reset_found:
+            # Můžeš vnutit reset prioritu globálně
+            allowed_found = False
+
+    return allowed_found, reset_found
+
+# =========================
+# Vyhodnocení allowed/reset z resultu (on_result)
+# =========================
+def _eval_on_result(context, P):
+    """
+    RESULT_OK_IS_ALLOWED:
+      True  => OK -> allowed, NG -> reset
+      False => OK -> reset,   NG -> allowed
+    """
+    res = bool(context.get("result", False))
+    if P["RESULT_OK_IS_ALLOWED"]:
+        return (res is True), (res is False)
+    else:
+        return (res is False), (res is True)
+
+# =========================
+# Hlavní funkce
+# =========================
+def main(context):
+    _init_globals()
+    P = _get_params(context)
+
+    context["ai_trigger_state"] = __main__.AI_STATE
+
+    # ------ Vyhodnocení vstupů podle zvoleného režimu ------
+    mode = str(P["MODE"]).strip().lower()
+    if mode == "on_result":
+        allowed_found, reset_found = _eval_on_result(context, P)
+    else:  # default + "on_classes"
+        allowed_found, reset_found = _eval_on_classes(context, P)
+
+    if P["VERBOSE"]:
+        print(f"[AI-TRIG] MODE={mode} | SRC={P['SOURCE_SELECT']} | state={__main__.AI_STATE} | "
+              f"allowed={allowed_found} reset={reset_found} | DEB={__main__.DEB_CNT}/{P['LOOP_NUMBER']} | "
+              f"CAP={__main__.CAP_CNT}/{P['FRAME_NUMBER']}")
+
+    # ========== IDLE ==========
+    if __main__.AI_STATE == STATE_IDLE:
+        # Pokud je jen reset (OUT/pozadí) a není allowed → blokuj (nepouštět OUT od startu)
+        if reset_found and not allowed_found:
+            context["exit"] = True
+            return
+
+        # Trigger → DEBOUNCE
+        if allowed_found and not reset_found:
+            __main__.AI_STATE = STATE_DEBOUNCE
+            _reset_debounce()
+            _reset_capture()
+            context["ai_trigger_state"] = __main__.AI_STATE
+            context["exit"] = True
+            return
+
+        # Allowed i reset současně: globální priorita resetu → blokace (bez posunu stavu)
+        if allowed_found and reset_found:
+            if P["RESET_HAS_PRIORITY"]:
+                context["exit"] = True
+                return
+            # pokud bys chtěl pustit allowed i přes reset (nedoporučeno), odstraň blokaci
+
+        # Nic: neblokujeme
+        return
+
+    # ======== DEBOUNCE ========
+    if __main__.AI_STATE == STATE_DEBOUNCE:
+        # Reset má prioritu → zpět do IDLE (blokuje tento snímek)
+        if reset_found:
+            __main__.AI_STATE = STATE_IDLE
+            _reset_debounce(); _reset_capture()
+            context["ai_trigger_state"] = __main__.AI_STATE
+            context["exit"] = True
+            return
+
+        # Allowed zmizel → zpět do IDLE (blokuje tento snímek)
+        if not allowed_found:
+            __main__.AI_STATE = STATE_IDLE
+            _reset_debounce(); _reset_capture()
+            context["ai_trigger_state"] = __main__.AI_STATE
+            context["exit"] = True
+            return
+
+        __main__.DEB_CNT += 1
+        if __main__.DEB_CNT >= P["LOOP_NUMBER"]:
+            __main__.AI_STATE = STATE_CAPTURE
+            _reset_capture()
+            context["ai_trigger_state"] = __main__.AI_STATE
+            # tento snímek už neblokujeme – CAPTURE níže
+        else:
+            context["exit"] = True
+            return
+
+    # ========= CAPTURE =========
+    if __main__.AI_STATE == STATE_CAPTURE:
+        # Reset při CAPTURE → okamžitě WAIT_RESET a BLOKUJ aktuální snímek
+        if reset_found:
+            __main__.AI_STATE = STATE_WAIT_RESET
+            context["ai_trigger_state"] = __main__.AI_STATE
+            context["exit"] = True
+            return
+
+        # Allowed zmizel při CAPTURE → okamžitě WAIT_RESET a BLOKUJ aktuální snímek
+        if not allowed_found:
+            __main__.AI_STATE = STATE_WAIT_RESET
+            context["ai_trigger_state"] = __main__.AI_STATE
+            context["exit"] = True
+            return
+
+        # Propouštíme allowed snímek (žádný exit) a počítáme
+        __main__.CAP_CNT += 1
+
+        # Po dosažení FRAME_NUMBER přejdeme do WAIT_RESET (blokace začne od následujícího snímku)
+        if __main__.CAP_CNT >= P["FRAME_NUMBER"]:
+            __main__.AI_STATE = STATE_WAIT_RESET
+            context["ai_trigger_state"] = __main__.AI_STATE
+        return
+
+    # ======== WAIT_RESET ========
+    if __main__.AI_STATE == STATE_WAIT_RESET:
+        # Čekáme na reset (OUT/pozadí). COKOLIV teď blokujeme.
+        if reset_found:
+            __main__.AI_STATE = STATE_IDLE
+            _reset_debounce(); _reset_capture()
+            context["ai_trigger_state"] = __main__.AI_STATE
+            # Resetovací snímek ještě zablokujeme
+            context["exit"] = True
+            return
+
+        context["exit"] = True
+        return
+
+    # Fallback
+    __main__.AI_STATE = STATE_IDLE
+    context["ai_trigger_state"] = __main__.AI_STATE
+    return

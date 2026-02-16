@@ -1,0 +1,44 @@
+import requests
+
+# Nastavení IP adresy a portu IoT portu masteru AL1306
+IP_ADDRESS = "192.168.1.25"
+PORT = "4"  # používáme port[4] podle zadání
+
+def read_beacon_value():
+    """
+    Pošle požadavek getdata a vrátí hodnotu ze zařízení jako řetězec, např. "00", "01" apod.
+    """
+    url = f"http://{IP_ADDRESS}/iolinkmaster/port[{PORT}]/iolinkdevice/pdin/getdata"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "code": "request",
+        "cid": 1,
+        "adr": f"/iolinkmaster/port[{PORT}]/iolinkdevice/pdin/getdata"
+    }
+    try:
+        resp = requests.post(url, json=payload, headers=headers, timeout=5)
+        resp.raise_for_status()
+        data = resp.json()
+        # očekáváme tvar: {"cid":1,"data":{"value":"00"},"code":200}
+        return data["data"]["value"]
+    except Exception as e:
+        print("Chyba při čtení stavu tlačítka:", e)
+        # v případě chyby můžete zvolit výchozí hodnotu nebo znovu vyhodit
+        return None
+
+def main(context):
+    # 1) Nejprve přečteme stav tlačítka
+    beacon_value = read_beacon_value()
+    print("Beacon returned value:", beacon_value)
+
+    # 2) Pokud přišlo "00" (výstraha) – zastavíme další flow
+    if beacon_value == "00":
+        context["exit"] = True
+        print("Beacon v režimu 00 – zastavuji flow.")
+        return
+    # 3) Pokud přišlo "01" – necháme flow pokračovat
+    elif beacon_value == "01":
+        print("Beacon v režimu 01 – pokračuji ve flow.")
+    else:
+        print(f"Tlačítko v neznámém režimu '{beacon_value}' – pokračuji, ale zkontrolujte nastavení.")
+

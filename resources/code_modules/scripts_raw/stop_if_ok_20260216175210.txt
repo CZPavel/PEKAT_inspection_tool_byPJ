@@ -1,0 +1,4 @@
+def main(context):
+    # Zastav flow, pokud je aktuální vyhodnocení NG
+    if context.get('result') is True:
+        context['exit'] = True

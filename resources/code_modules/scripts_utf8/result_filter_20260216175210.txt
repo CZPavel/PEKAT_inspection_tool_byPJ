@@ -1,0 +1,89 @@
+import __main__
+
+# ========= Výchozí nastavení (lze přepsat v operatorInput) =========
+DEFAULTS = {
+    "req_false": 3,                 # kolik po sobě jdoucích False je potřeba pro celkové False
+    "req_true": 2,                  # kolik po sobě jdoucích True je potřeba pro celkové True
+    "update_context_result": True,  # přepsat context['result'] agregovaným stavem
+    "debug": False,                 # logování do konzole True nebo False
+}
+
+# ------------- pomocné -------------
+def get_param(context, key):
+    oi = context.get("operatorInput", {}) or {}
+    return oi.get(key, DEFAULTS[key])
+
+def initialize_globals():
+    if 'FalseCounter' not in dir(__main__):
+        __main__.FalseCounter = 0
+    if 'TrueCounter' not in dir(__main__):
+        __main__.TrueCounter = 0
+    if 'FinalResult' not in dir(__main__):
+        __main__.FinalResult = True  # výchozí agregovaný stav
+
+def reset_false():
+    __main__.FalseCounter = 0
+
+def reset_true():
+    __main__.TrueCounter = 0
+
+# ------------- hlavní logika -------------
+def main(context):
+    """
+    Symetrická hystereze:
+      - pro NG: přepne na False až po 'req_false' po sobě jdoucích False
+      - pro OK: přepne na True  až po 'req_true'  po sobě jdoucích True
+    Výstup:
+      - context['final_result'] : agregovaný výsledek (bool)
+      - volitelně context['result'] je přepsán agregovaným výsledkem
+      - kontextové počítadla: context['false_counter'], context['true_counter']
+    """
+    initialize_globals()
+
+    # Parametry
+    req_false = int(get_param(context, "req_false"))
+    req_true  = int(get_param(context, "req_true"))
+    update_ctx = bool(get_param(context, "update_context_result"))
+    debug = bool(get_param(context, "debug"))
+
+    # Aktuální modulový výsledek; pokud chybí, ber True (OK) – lze upravit podle potřeby
+    current_result = context.get('result', True)
+
+    # Hystereze
+    if current_result is False:
+        # inkrementuj NG sekvenci, resetuj OK sekvenci
+        __main__.FalseCounter += 1
+        reset_true()
+
+        # přepni na NG až při dosažení prahu
+        if __main__.FalseCounter >= req_false:
+            __main__.FinalResult = False
+        # pokud prah nedosažen, necháme FinalResult jak je (držák)
+    elif current_result is True:
+        # inkrementuj OK sekvenci, resetuj NG sekvenci
+        __main__.TrueCounter += 1
+        reset_false()
+
+        # přepni na OK až při dosažení prahu
+        if __main__.TrueCounter >= req_true:
+            __main__.FinalResult = True
+        # pokud prah nedosažen, necháme FinalResult jak je
+    else:
+        # current_result je None nebo nedefinovaný → nezasahujeme do stavů
+        pass
+
+    # Zápis pomocných hodnot do contextu (užitečné do Operator View)
+    context['false_counter'] = __main__.FalseCounter
+    context['true_counter']  = __main__.TrueCounter
+    context['final_result']  = __main__.FinalResult
+
+    # Volitelně přepiš oficiální výsledek (má vliv na navazující moduly s Evaluation)
+    if update_ctx:
+        context['result'] = __main__.FinalResult
+
+    # Debug výpis
+    if debug:
+        print(f"[Hysteresis] in={current_result} | "
+              f"Fcnt={__main__.FalseCounter}/{req_false}  "
+              f"Tcnt={__main__.TrueCounter}/{req_true}  "
+              f"Final={__main__.FinalResult}")

@@ -1,0 +1,221 @@
+import cv2
+import numpy as np
+import __main__
+
+# ------------------------------- NASTAVENÍ (lze přepsat v Operator View) --------------------------------
+# Základní cílová "střední šedá" (0..1), 0.5 = neutrální
+TARGET_MIDGRAY = 0.50
+
+# Percentilový rozsah pro robustní natažení kontrastu (clipuje extrémy, aby se nehonil šum/odlesky)
+LOW_PCT  = 1.0   # spodní percentil (v %)
+HIGH_PCT = 99.0  # horní percentil (v %)
+
+# CLAHE defaulty (použije se jen na jasový kanál; u 16bit se dočasně škáluje na 8bit)
+CLAHE_CLIP_LIMIT  = 2.0      # základní limit, skript si ho dál adaptivně upraví
+CLAHE_TILE_GRID   = (4, 4)   # jemnější = menší dlaždice, hrubší = větší dlaždice
+
+# Směšování s původním obrazem (0..1) – vyšší hodnota = méně agresivní celková změna
+BLEND_ALPHA = 0.60
+
+# Bezpečnostní limit, kolik % pixelů smějí skončit mimo rozsah po natažení (prakticky se oříznou)
+MAX_CLIP_PERCENT = 1.0
+# --------------------------------------------------------------------------------------------------------
+
+def _get_operator_param(context, key, default):
+    """Čtení volitelných parametrů z Operator View (context['operatorInput'])."""
+    try:
+        return type(default)(context['operatorInput'].get(key, default))
+    except Exception:
+        return default
+
+def _to_float(img):
+    """Převede libovolné uint8/uint16 do [0,1] float, vrátí (fimg, max_val, dtype)."""
+    dtype = img.dtype
+    if np.issubdtype(dtype, np.integer):
+        maxv = np.iinfo(dtype).max
+        f = img.astype(np.float32) / float(maxv)
+        return f, float(maxv), dtype
+    elif np.issubdtype(dtype, np.floating):
+        # Předpoklad rozsahu 0..1; případně normalizuj, pokud přesahuje
+        m = np.nanmax(img)
+        if m > 1.0:
+            f = (img / m).astype(np.float32)
+            return f, 1.0, img.dtype
+        return img.astype(np.float32), 1.0, img.dtype
+    else:
+        # Fallback
+        f = img.astype(np.float32)
+        m = float(np.nanmax(f)) if np.nanmax(f) > 0 else 1.0
+        return (f / m), m, img.dtype
+
+def _from_float(fimg, maxv, out_dtype):
+    """Vrátí obraz ve zdrojovém typu/rozsahu."""
+    fimg = np.clip(fimg, 0.0, 1.0)
+    if np.issubdtype(out_dtype, np.integer):
+        arr = np.round(fimg * maxv).astype(out_dtype)
+        return arr
+    return fimg.astype(out_dtype)
+
+def _is_color(img):
+    return (img.ndim == 3) and (img.shape[2] >= 3)
+
+def _compute_luma01(img01):
+    """Vrátí jas v rozsahu [0,1]; u barvy použije L z Lab (škálovaný na 0..1)."""
+    if _is_color(img01):
+        # img01 je v [0,1]; cv2 očekává 0..255 -> přeškáluj na 8bit kvůli konverzi
+        u8 = np.clip(img01 * 255.0, 0, 255).astype(np.uint8)
+        lab = cv2.cvtColor(u8, cv2.COLOR_BGR2Lab)
+        L = lab[:, :, 0].astype(np.float32) / 255.0
+        return L
+    else:
+        return img01 if img01.ndim == 2 else img01[:, :, 0]
+
+def _percentile_stretch(img01, low_pct, high_pct):
+    """Robustní lineární natažení dle percentilů."""
+    low = np.percentile(img01, low_pct)
+    high = np.percentile(img01, high_pct)
+    if high <= low + 1e-6:
+        # Degenerovaný rozsah – vrať beze změny
+        return img01, (0.0, 1.0)
+    stretched = (img01 - low) / (high - low)
+    return np.clip(stretched, 0.0, 1.0), (low, high)
+
+def _auto_gamma(img01, target_mid=0.5):
+    """Vrátí gamma korekci tak, aby průměrná luminance byla blízko target_mid."""
+    mean = float(np.mean(img01))
+    mean = np.clip(mean, 1e-3, 1.0 - 1e-3)
+    # Odvození gammy tak, aby mean^gamma ≈ target_mid  =>  gamma = log(target)/log(mean)
+    gamma = np.log(max(target_mid, 1e-3)) / np.log(mean)
+    # Zamez extrémům gammy
+    gamma = float(np.clip(gamma, 0.5, 2.0))
+    return gamma
+
+def _apply_gamma(img01, gamma):
+    return np.power(np.clip(img01, 0.0, 1.0), gamma)
+
+def _adaptive_clahe_on_L(img01_color, base_clip, tile_grid, strength=1.0):
+    """
+    CLAHE jen na L-kanál (Lab). strength 0..1 míchá výsledek s původním.
+    U vstupu očekává [0,1] float BGR.
+    """
+    u8 = np.clip(img01_color * 255.0, 0, 255).astype(np.uint8)
+    lab = cv2.cvtColor(u8, cv2.COLOR_BGR2Lab)
+    L = lab[:, :, 0]
+
+    # Adaptivně uprav clipLimit podle "kontrastnosti" (IQR z L)
+    p25, p75 = np.percentile(L, [25, 75])
+    iqr = max(p75 - p25, 1.0)
+    # Čím menší IQR, tím vyšší clipLimit (potřebujeme víc pomoci), ale omezeno
+    adapt_clip = np.clip(base_clip * (128.0 / iqr), 1.5, 4.0)
+
+    clahe = cv2.createCLAHE(clipLimit=float(adapt_clip), tileGridSize=tile_grid)
+    L_eq = clahe.apply(L)
+
+    # Směšování L: mírní artefakty, zachová texturu
+    L_mix = cv2.addWeighted(L, 1.0 - strength, L_eq, strength, 0.0)
+    lab[:, :, 0] = L_mix.astype(np.uint8)
+
+    out_bgr = cv2.cvtColor(lab, cv2.COLOR_Lab2BGR).astype(np.float32) / 255.0
+    return out_bgr
+
+def _auto_exposure(img):
+    """
+    Hlavní pipeline:
+    1) převod do [0,1]
+    2) percentilové natažení
+    3) gamma k midgray
+    4) volitelně CLAHE na L (u barvy)
+    5) mírné globální směšování s originálem (BLEND_ALPHA)
+    """
+    img01, maxv, odtype = _to_float(img)
+    is_color = _is_color(img01)
+
+    # Jasový kanál pro řízení
+    luma = _compute_luma01(img01)
+
+    # 1) Robustní lineární natažení
+    stretched_luma, (low, high) = _percentile_stretch(luma, LOW_PCT, HIGH_PCT)
+
+    # Odhad "kolik klipujeme" – pokud moc, zjemni parametry (soft guard)
+    clipped_low  = float(np.mean(luma < low)) * 100.0
+    clipped_high = float(np.mean(luma > high)) * 100.0
+    overclip = (clipped_low + clipped_high) > MAX_CLIP_PERCENT
+
+    # Vytvoř lineární LUT pro celý obraz (kanálově konzistentní)
+    if high > low + 1e-6:
+        img_lin = (img01 - low) / (high - low)
+    else:
+        img_lin = img01.copy()
+    img_lin = np.clip(img_lin, 0.0, 1.0)
+
+    # 2) Gamma k cílové střední šedi
+    gamma = _auto_gamma(stretched_luma, TARGET_MIDGRAY)
+    if overclip:
+        # Když hrozí moc klipu, gamma méně agresivní (blíž 1.0)
+        gamma = 0.5 * (gamma + 1.0)
+    img_gamma = _apply_gamma(img_lin, gamma)
+
+    # 3) CLAHE (jen pro barvu) – dělá se až po základním srovnání
+    if is_color:
+        # síla CLAHE adaptivně dle kontrastu (IQR)
+        p25, p75 = np.percentile((img_gamma * 255).astype(np.uint8), [25, 75])
+        iqr = max(p75 - p25, 1.0)
+        # čím menší IQR, tím silnější lokální úprava (0.35 .. 0.85)
+        clahe_strength = float(np.clip(0.35 + (128.0 - iqr) / 256.0, 0.35, 0.85))
+        img_local = _adaptive_clahe_on_L(img_gamma, CLAHE_CLIP_LIMIT, CLAHE_TILE_GRID, strength=clahe_strength)
+    else:
+        # Gray: simuluj "CLAHE‑like" jemnou lokální korekci přes blur‑division
+        # (rychlá a bezpečná varianta bez artefaktů)
+        gray = img_gamma
+        kernel = max(5, int(round(min(gray.shape[:2]) * 0.02)) | 1)  # cca 2 % rozměru
+        blurred = cv2.GaussianBlur(gray, (kernel, kernel), 0)
+        eps = 1e-3
+        local = np.clip(gray / (blurred + eps), 0.0, 4.0)
+        # normalizace lokální korekce do [0,1]
+        l_low, l_high = np.percentile(local, [1, 99])
+        local = np.clip((local - l_low) / max(l_high - l_low, 1e-6), 0.0, 1.0)
+        # smíchej s globálně korigovaným
+        img_local = (0.7 * img_gamma + 0.3 * local)
+
+    # 4) Globální mírné směšování s originálem, aby zůstala přirozenost
+    out01 = cv2.addWeighted(img01.astype(np.float32), BLEND_ALPHA,
+                            img_local.astype(np.float32), 1.0 - BLEND_ALPHA, 0.0)
+
+    # 5) návrat do původního typu
+    return _from_float(out01, maxv, odtype)
+
+def initialize_globals_from_operator_view(context):
+    """Volitelné: načte override parametrů z Operator View, pokud existují."""
+    global TARGET_MIDGRAY, LOW_PCT, HIGH_PCT, CLAHE_CLIP_LIMIT, CLAHE_TILE_GRID, BLEND_ALPHA, MAX_CLIP_PERCENT
+    if 'operatorInput' in context and isinstance(context['operatorInput'], dict):
+        TARGET_MIDGRAY   = _get_operator_param(context, 'exp_target_midgray', TARGET_MIDGRAY)
+        LOW_PCT          = _get_operator_param(context, 'exp_low_pct', LOW_PCT)
+        HIGH_PCT         = _get_operator_param(context, 'exp_high_pct', HIGH_PCT)
+        CLAHE_CLIP_LIMIT = _get_operator_param(context, 'exp_clahe_clip', CLAHE_CLIP_LIMIT)
+        # tile grid nelze snadno psát jako tuple do operatorInput; necháme fixní
+        BLEND_ALPHA      = _get_operator_param(context, 'exp_blend', BLEND_ALPHA)
+        MAX_CLIP_PERCENT = _get_operator_param(context, 'exp_max_clip', MAX_CLIP_PERCENT)
+
+def main(context):
+    """
+    Automatické vyrovnání jasu/kontrastu s ochranou proti přepalům a rozdrcení stínů.
+    - podporuje 8/16bit, gray/BGR
+    - robustní linear stretch + gamma + (CLAHE/blur-division) + globální blend
+    - parametry lze řídit z Operator View (volitelně):
+        exp_target_midgray (float 0..1), exp_low_pct, exp_high_pct,
+        exp_clahe_clip, exp_blend (0..1), exp_max_clip
+    """
+    if 'image' not in context:
+        return
+
+    # Volitelně přetáhni parametry z Operator View
+    initialize_globals_from_operator_view(context)
+
+    img = context['image']
+    try:
+        corrected = _auto_exposure(img)
+        context['image'] = corrected
+    except Exception as e:
+        # Bezpečný fallback – při chybě nech obraz beze změny a přidej informaci do contextu
+        context['auto_exposure_error'] = str(e)
+        # context['image'] zůstane původní

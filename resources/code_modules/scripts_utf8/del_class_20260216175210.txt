@@ -1,0 +1,82 @@
+# PEKAT VISION – Code modul
+# Účel: Odstranit (vymazat) detekované obdélníky pro následné moduly ve flow.
+#       Režimy: odstranit vše / odstranit jen vybrané třídy / ponechat jen vybrané třídy.
+#
+# Pozn.: Struktura contextu a práce s detectedRectangles/heatmaps jsou popsány v KB. 
+#        Příklad vyprázdnění detectedRectangles/heatmaps viz "Use Heatmap as a mask".    
+
+from typing import List
+
+# ========================== NASTAVENÍ ==========================
+MODE = "remove_all"          # "remove_all" | "remove_labels" | "keep_only_labels"
+
+LABELS: List[str] = [        # platí pro režimy remove_labels / keep_only_labels
+    "Ignorovat",             # příklad třídy k odstranění / ponechání
+]
+
+CASE_SENSITIVE = False       # porovnávání názvů tříd bez/ s citlivostí na velikost písmen
+CLEAR_HEATMAPS = False       # True = vyprázdnit i context['heatmaps']
+SET_FLAG_IN_CONTEXT = True   # True = doplnit info do contextu (pro Inspection/OperatorView)
+# ==============================================================
+
+
+def _label_norm(s: str) -> str:
+    return s if CASE_SENSITIVE else s.lower()
+
+
+def _get_rect_labels(rect) -> List[str]:
+    labs = []
+    for cn in rect.get("classNames", []) or []:
+        lab = cn.get("label", "")
+        if isinstance(lab, str):
+            labs.append(lab)
+    return labs
+
+
+def _should_remove(rect) -> bool:
+    """Rozhodne, zda daný obdélník odstranit na základě MODE/LABELS."""
+    if MODE == "remove_all":
+        return True
+
+    rect_labels = [_label_norm(l) for l in _get_rect_labels(rect)]
+    wanted = {_label_norm(l) for l in LABELS}
+
+    if MODE == "remove_labels":
+        # odstraníme, pokud má některý z uvedených labelů
+        return any(l in wanted for l in rect_labels)
+
+    if MODE == "keep_only_labels":
+        # odstranit vše, co NENÍ v seznamu (ponecháme jen vyjmenované)
+        return not any(l in wanted for l in rect_labels)
+
+    # neznámý mód → nic nemaž
+    return False
+
+
+def main(context, module_item=None):
+    rects = context.get("detectedRectangles", []) or []
+
+    # Rozhodování a filtrace
+    remaining = []
+    removed_count = 0
+    for r in rects:
+        if _should_remove(r):
+            removed_count += 1
+        else:
+            remaining.append(r)
+
+    # Ulož zpět do contextu
+    context["detectedRectangles"] = remaining  # ponecháme typ listu prázdný/neprázdný
+
+    # Volitelně smaž i heatmapy
+    if CLEAR_HEATMAPS:
+        context["heatmaps"] = []  # vyčištění heatmap pro následující moduly
+
+    # Volitelná metadata pro kontrolu/OperatorView
+    if SET_FLAG_IN_CONTEXT:
+        context["rectangles_removed"] = removed_count
+        context["rectangles_remaining"] = len(remaining)
+        context["rectangles_mode"] = MODE
+
+    # Debug print (nechávám zakomentované; podle potřeby odkomentuj)
+    # print(f"[RECTS] removed={removed_count}, remaining={len(remaining)}, mode={MODE}")

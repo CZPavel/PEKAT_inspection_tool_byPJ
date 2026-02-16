@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "categories": [
+    "general",
+    "trigger",
+    "flow-control",
+    "filter",
+    "image-filter",
+    "result",
+    "save",
+    "barcode",
+    "rendering",
+    "io-control"
+  ]
+}

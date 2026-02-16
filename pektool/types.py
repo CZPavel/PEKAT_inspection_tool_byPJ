@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 
 @dataclass
@@ -51,3 +51,66 @@ class ArtifactSaveResult:
     processed_saved: bool
     processed_path: Optional[str]
     reason: Optional[str]
+
+
+@dataclass
+class ScriptAsset:
+    id: str
+    name: str
+    source_filename: str
+    storage_path_utf8: str
+    storage_path_raw: str
+    format: Literal["txt", "py", "pmodule"]
+    category: str
+    tags: List[str]
+    short_description: str
+    encoding_source: str
+    size_bytes: int
+    sha256: str
+    created_at: str
+    updated_at: str
+    empty: bool = False
+
+
+@dataclass
+class ScriptCatalogIndex:
+    schema_version: str
+    generated_at: str
+    items: List[ScriptAsset]
+
+
+@dataclass
+class InstallTarget:
+    pekat_root: str
+    server_path: str
+    detected_version: str
+    is_valid: bool
+    warning: Optional[str] = None
+
+
+@dataclass
+class InstallPlanItem:
+    src: str
+    dst: str
+    exists: bool
+    will_overwrite: bool
+    size: int
+
+
+@dataclass
+class InstallPlan:
+    library_name: str
+    target: InstallTarget
+    items: List[InstallPlanItem]
+    new_files: int
+    overwrite_files: int
+    total_size: int
+
+
+@dataclass
+class InstallResult:
+    success: bool
+    copied: int
+    overwritten: int
+    backup_path: Optional[str]
+    errors: List[str]

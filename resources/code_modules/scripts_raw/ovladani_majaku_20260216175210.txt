@@ -1,0 +1,81 @@
+import requests
+
+def control_beacon(context):
+    """
+    Ovládá maják na základě výsledku z contextu.
+    Hex příkaz se skládá ze tří proměnných:
+      - Siréna (2 znaky): "00" = vypnuta, "11" = siréna 1, "21" = siréna 2
+      - Blink (1 znak): "0" = trvale, "1" = bliká pomalu, "2" = bliká rychleji
+      - Color (1 znak): "0" = zhasnuto, "1" = červená, "2" = zelená, "3" = oranžová, "4" = modrá
+    """
+    # Nastavení IP adresy IoT portu masteru AL1306
+    ip_address = "192.168.1.22"
+    port = "1"
+    url = f"http://{ip_address}/iolinkmaster/port[{port}]/iolinkdevice/pdout/setdata"
+    headers = {"Content-Type": "application/json"}
+    
+    no_light = "0"
+    red = "1"
+    green = "2"
+    orange = "3"
+    blue = "4"
+    violet ="5"
+    tyrkys = "6"
+    white = "7"
+    yellow = "8"
+    
+    light_on = "0"
+    slow_blink = "1"
+    blink = "2"
+    fast_blink = "3"
+    slow_flash = "4"
+    flash = "5"
+    fast_flash = "6"
+    
+    beep_off = "00"
+    beep1 = "11"
+    beep2 = "21"
+    beep3 = "31"
+    beep4 = "41"
+    beep5 = "51"
+    beep6 = "61"
+    beep7 = "61"
+    
+    
+    # Výběr hodnot podle výsledku detekce v contextu
+    if context["result"]:
+        # OK: maják má být v normálním režimu – žádná siréna, trvale svítí, zelená
+        siren = beep_off  
+        light = light_on   
+        color = green   
+    else:
+        # NOK: maják má být ve varovném režimu – siréna 2, pomalé blikání, červená
+        siren = beep_off  
+        light = fast_blink   
+        color = red   
+    
+    # Sestavení výsledného hex příkazu
+    command = siren + light + color  # např. "2111" nebo "0002"
+    
+    # Sestavení payloadu pro POST požadavek
+    payload = {
+        "code": "request",
+        "cid": 1,  # identifikátor požadavku (lze libovolně měnit)
+        "adr": f"/iolinkmaster/port[{port}]/iolinkdevice/pdout/setdata",
+        "data": {
+            "newvalue": command
+        }
+    }
+    
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        if response.status_code == 200:
+            print("Povel odeslán úspěšně:", command)
+        else:
+            print("Chyba při odesílání povelu:", response.status_code, response.text)
+    except Exception as e:
+        print("Výjimka při odesílání povelu:", str(e))
+
+def main(context):
+    # Funkce pouze ovládá maják na základě context["result"]
+    control_beacon(context)

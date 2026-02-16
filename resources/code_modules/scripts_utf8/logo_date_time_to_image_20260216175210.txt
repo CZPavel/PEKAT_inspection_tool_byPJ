@@ -1,0 +1,275 @@
+import cv2
+import numpy as np
+from datetime import datetime
+import __main__
+
+# =============================================================================
+# Jednoduché vložení LOGA (PNG s alfou) + text / datum / čas do snímku
+# -----------------------------------------------------------------------------
+# Nastavitelné přes Operator UI (operatorInput); jinak se použijí DEFAULTS.
+# Klíčové parametry:
+#   LOGO
+#     - logo_path (str)       : cesta k PNG logu s průhledností (BGRA)
+#     - logo_scale (float)    : škálování loga (1.0 = původní velikost)
+#     - logo_anchor (str)     : kotva umístění ["top-left", "top-right", "bottom-left", "bottom-right"]
+#     - logo_offset_x/y (int) : posun od okraje v pixelech
+#     - show_logo (bool)      : zobrazit logo?
+#
+#   TEXT/DATUM/ČAS
+#     - show_text (bool)      : vykreslit text?
+#     - text_value (str)      : textová zpráva (může být prázdná)
+#     - show_datetime (bool)  : vykreslit datum/čas?
+#     - datetime_fmt (str)    : formát datetime, např. "%Y-%m-%d %H:%M:%S"
+#     - text_anchor (str)     : kotva textu ["top-left", "top-right", "bottom-left", "bottom-right"]
+#     - text_offset_x/y (int) : posun od okraje v pixelech
+#     - font_scale (float)    : velikost písma (OpenCV)
+#     - font_thickness (int)  : tloušťka písma
+#     - text_bg (bool)        : poloprůhledný podklad pod textem
+#     - text_bg_alpha (float) : průhlednost podkladu 0..1 (např. 0.4)
+#
+# Výstup:
+#   - upravený obraz v context['image']
+#   - souhrnná informace v context['overlay_info']
+# =============================================================================
+
+# ----------------------------- DEFAULT hodnoty -------------------------------
+DEFAULTS = {
+    # Logo:
+    "logo_path": r"F:\Logo_Fablab.png",
+    "show_logo": True,
+    "logo_scale": 1.5,
+    "logo_anchor": "bottom-left",   # "top-left" | "top-right" | "bottom-left" | "bottom-right"
+    "logo_offset_x": 10,
+    "logo_offset_y": 10,
+
+    # Text / datum / čas:
+    "show_text": True,
+    "text_value": "Skoda Classic Tour",
+    "show_datetime": True,
+    "datetime_fmt": "%Y-%m-%d %H:%M:%S",
+    "text_anchor": "bottom-right",
+    "text_offset_x": 10,
+    "text_offset_y": 10,
+    "font_scale": 1.5,
+    "font_thickness": 2,
+    "text_bg": True,            # poloprůhledný podklad pod textem
+    "text_bg_alpha": 0.4,       # 0..1 (vyšší = více krytí podkladu)
+}
+
+# ----------------------------- Pomocné funkce -------------------------------
+def get_param(context, key):
+    oi = context.get("operatorInput", {}) or {}
+    return oi.get(key, DEFAULTS[key])
+
+def _ensure_logo_cache():
+    """Inicializace cache pro logo v __main__ (persistuje mezi snímky)."""
+    if not hasattr(__main__, "LogoCache"):
+        __main__.LogoCache = {"path": None, "img": None}
+
+def _load_logo_bgra(path):
+    """
+    Načte logo jako BGRA (4 kanály). Vrací None, pokud nelze načíst.
+    Používá jednoduchou cache, aby se nečetlo z disku na každý snímek.
+    """
+    _ensure_logo_cache()
+    cache = __main__.LogoCache
+    if path and cache["path"] == path and cache["img"] is not None:
+        return cache["img"]
+
+    img = cv2.imread(path, cv2.IMREAD_UNCHANGED) if path else None
+    # Ověř, že má 4 kanály (BGRA)
+    if img is None or (img.ndim != 3 or img.shape[2] != 4):
+        cache["path"] = path
+        cache["img"] = None
+        return None
+
+    cache["path"] = path
+    cache["img"] = img
+    return img
+
+def _anchor_to_xy(anchor, offset_x, offset_y, w_obj, h_obj, W, H):
+    """
+    Přepočet kotvy a offsetu na absolutní (x, y) levého-horního rohu objektu.
+    - (W,H): velikost cílového obrázku
+    - (w_obj, h_obj): velikost vkládaného objektu (logo / text box)
+    """
+    anchor = (anchor or "top-left").lower()
+    if anchor == "top-left":
+        x = offset_x
+        y = offset_y
+    elif anchor == "top-right":
+        x = W - w_obj - offset_x
+        y = offset_y
+    elif anchor == "bottom-left":
+        x = offset_x
+        y = H - h_obj - offset_y
+    elif anchor == "bottom-right":
+        x = W - w_obj - offset_x
+        y = H - h_obj - offset_y
+    else:
+        # neznámá kotva -> top-left
+        x = offset_x
+        y = offset_y
+    return int(x), int(y)
+
+def overlay_rgba_on_bgr(dst_bgr, src_rgba, x, y, scale=1.0):
+    """
+    Položí RGBA (logo) na BGR snímek v pozici (x,y) = levý-horní roh.
+    Bezpečně ořízne na hranicích cíle. Volitelný resize (scale).
+    """
+    if dst_bgr is None or src_rgba is None:
+        return dst_bgr
+
+    # Resize loga
+    if scale is not None and scale != 1.0:
+        new_w = max(1, int(round(src_rgba.shape[1] * float(scale))))
+        new_h = max(1, int(round(src_rgba.shape[0] * float(scale))))
+        src_rgba = cv2.resize(
+            src_rgba, (new_w, new_h),
+            interpolation=cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
+        )
+
+    h, w = src_rgba.shape[:2]
+    H, W = dst_bgr.shape[:2]
+
+    # Ořez proti hranám cíle
+    x0 = max(0, x)
+    y0 = max(0, y)
+    x1 = min(W, x + w)
+    y1 = min(H, y + h)
+    if x0 >= x1 or y0 >= y1:
+        return dst_bgr  # mimo obraz
+
+    # Odpovídající ROI ve zdroji
+    sx0 = x0 - x
+    sy0 = y0 - y
+    sx1 = sx0 + (x1 - x0)
+    sy1 = sy0 + (y1 - y0)
+
+    roi_dst = dst_bgr[y0:y1, x0:x1]           # H' x W' x 3
+    roi_src = src_rgba[sy0:sy1, sx0:sx1, :3]  # H' x W' x 3 (BGR)
+    alpha   = src_rgba[sy0:sy1, sx0:sx1, 3:4] # H' x W' x 1
+
+    alpha_f = alpha.astype(np.float32) / 255.0
+    inv_a   = 1.0 - alpha_f
+
+    blended = (alpha_f * roi_src.astype(np.float32) + inv_a * roi_dst.astype(np.float32)).astype(np.uint8)
+    roi_dst[:] = blended
+    return dst_bgr
+
+def draw_text_block(img_bgr, lines, anchor, off_x, off_y, font_scale=0.7, thickness=2,
+                    bg=True, bg_alpha=0.4, line_gap=6):
+    """
+    Vykreslí několik řádků textu (list[str]) jako blok na danou kotvu a offset.
+    Přidá volitelný poloprůhledný podklad.
+    """
+    if img_bgr is None or not lines:
+        return
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    # Změř všechny řádky, spočti celkový box
+    sizes = [cv2.getTextSize(t, font, font_scale, thickness)[0] for t in lines]
+    text_w = max((s[0] for s in sizes), default=0)
+    text_h = sum((s[1] for s in sizes), 0) + (len(lines) - 1) * line_gap
+    H, W = img_bgr.shape[:2]
+
+    # Spočti levý-horní roh bloku dle kotvy
+    x, y = _anchor_to_xy(anchor, off_x, off_y, text_w, text_h, W, H)
+
+    # Poloprůhledný podklad
+    if bg and text_w > 0 and text_h > 0:
+        x1 = max(0, x - 6); y1 = max(0, y - 6)
+        x2 = min(W, x + text_w + 6); y2 = min(H, y + text_h + 6)
+        if x2 > x1 and y2 > y1:
+            roi = img_bgr[y1:y2, x1:x2]
+            overlay = roi.copy()
+            cv2.rectangle(overlay, (0, 0), (x2 - x1 - 1, y2 - y1 - 1), (0, 0, 0), thickness=-1)
+            # bg_alpha = podíl overlay, zbytek původní
+            a = float(np.clip(bg_alpha, 0.0, 1.0))
+            cv2.addWeighted(overlay, a, roi, 1.0 - a, 0, dst=roi)
+
+    # Vykresli řádky (bílou)
+    cursor_y = y
+    for (t, s) in zip(lines, sizes):
+        cv2.putText(img_bgr, t, (x, cursor_y + s[1]), font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+        cursor_y += s[1] + line_gap
+
+# ----------------------------------- MAIN ------------------------------------
+def main(context):
+    """
+    Vloží logo (PNG s alfou) a text/datum/čas do snímku.
+    Vše volitelné a nastavitelné přes operatorInput.
+    """
+    img = context.get("image", None)
+    if img is None:
+        context["overlay_info"] = "Chybí context['image'] – nic se nekreslí."
+        return
+
+    H, W = img.shape[:2]
+    info = {}
+
+    # ======== ČTENÍ PARAMETRŮ Z OPERATOR UI / DEFAULTS ========
+    # Logo
+    logo_path   = get_param(context, "logo_path")
+    show_logo   = bool(get_param(context, "show_logo"))
+    logo_scale  = float(get_param(context, "logo_scale"))
+    logo_anchor = str(get_param(context, "logo_anchor"))
+    logo_off_x  = int(get_param(context, "logo_offset_x"))
+    logo_off_y  = int(get_param(context, "logo_offset_y"))
+
+    # Text a datetime
+    show_text     = bool(get_param(context, "show_text"))
+    text_value    = str(get_param(context, "text_value"))
+    show_datetime = bool(get_param(context, "show_datetime"))
+    datetime_fmt  = str(get_param(context, "datetime_fmt"))
+    text_anchor   = str(get_param(context, "text_anchor"))
+    text_off_x    = int(get_param(context, "text_offset_x"))
+    text_off_y    = int(get_param(context, "text_offset_y"))
+    font_scale    = float(get_param(context, "font_scale"))
+    font_thickness = int(get_param(context, "font_thickness"))
+    text_bg       = bool(get_param(context, "text_bg"))
+    text_bg_alpha = float(get_param(context, "text_bg_alpha"))
+
+    # ======== LOGO (PNG s alfou) ========
+    if show_logo and logo_path:
+        logo_bgra = _load_logo_bgra(logo_path)
+        if logo_bgra is not None:
+            # Pozice dle kotvy:
+            hL, wL = logo_bgra.shape[:2]
+            if logo_scale != 1.0 and logo_scale > 0:
+                wL = max(1, int(round(wL * logo_scale)))
+                hL = max(1, int(round(hL * logo_scale)))
+            xL, yL = _anchor_to_xy(logo_anchor, logo_off_x, logo_off_y, wL, hL, W, H)
+            overlay_rgba_on_bgr(img, logo_bgra, xL, yL, scale=logo_scale)
+            info["logo"] = {"path": logo_path, "pos": [xL, yL], "scale": logo_scale, "anchor": logo_anchor}
+        else:
+            info["logo"] = {"path": logo_path, "status": "nenačteno nebo bez alfa kanálu"}
+
+    # ======== TEXT / DATUM / ČAS ========
+    lines = []
+    if show_text and text_value:
+        lines.append(text_value)
+    if show_datetime:
+        try:
+            lines.append(datetime.now().strftime(datetime_fmt))
+        except Exception:
+            # fallback formát
+            lines.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+    if lines:
+        draw_text_block(
+            img, lines,
+            anchor=text_anchor, off_x=text_off_x, off_y=text_off_y,
+            font_scale=font_scale, thickness=font_thickness,
+            bg=text_bg, bg_alpha=text_bg_alpha
+        )
+        info["text"] = {
+            "lines": lines, "anchor": text_anchor,
+            "offset": [text_off_x, text_off_y],
+            "font_scale": font_scale, "font_thickness": font_thickness,
+            "bg": text_bg, "bg_alpha": text_bg_alpha
+        }
+
+    # Zápis výsledku zpět
+    context["image"] = img
+    context["overlay_info"] = info

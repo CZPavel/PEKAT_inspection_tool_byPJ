@@ -1,0 +1,50 @@
+# PEKAT VISION - Code modul
+# Účel: Pokračovat jen když jsou v obrázku detekovány obě třídy: "Prava" a "Leva".
+#       Pokud chybí alespoň jedna, ukončit flow pro tento snímek (context['exit'] = True).
+
+def main(context):
+    # ======================= NASTAVENÍ =======================
+    # Požadované třídy, které MUSÍ být současně přítomné
+    REQUIRED_CLASSES = {"Prava", "Leva"}
+
+    # Citlivost na velikost písmen v názvech tříd
+    CASE_SENSITIVE = True
+    # ========================================================
+
+    # Robustní získání seznamu detekcí
+    detections = context.get('detectedRectangles', []) or []
+
+    # Pokud nejsou žádné detekce, rovnou ukončit flow (chybí obě/některá třída)
+    if len(detections) == 0:
+        context['exit'] = True
+        return
+
+    # Nalezené štítky tříd v tomto snímku
+    found_labels = set()
+
+    for rect in detections:
+        # Každý rectangle může mít více classNames (např. různé výstupy nebo více kandidátů)
+        class_names = rect.get('classNames', []) or []
+        for cls in class_names:
+            label = cls.get('label', '')
+            if not CASE_SENSITIVE:
+                label = label.lower()
+            found_labels.add(label)
+
+    # Připravit množinu požadovaných tříd podle nastavení CASE_SENSITIVE
+    if CASE_SENSITIVE:
+        required = REQUIRED_CLASSES
+    else:
+        required = {c.lower() for c in REQUIRED_CLASSES}
+
+    # Zkontrolovat, zda jsou přítomné OBOU požadované třídy
+    both_present = required.issubset(found_labels)
+
+    # Pokud NEJSOU obě, ukončit flow (další moduly se nespustí)
+    # (v PEKATu stačí nastavit context['exit'] = True pro předčasné ukončení této větve)
+    if not both_present:
+        context['exit'] = True
+        return
+
+    # Pokud jsou obě třídy přítomny, nic nedělej – flow pokračuje dál.
+    return

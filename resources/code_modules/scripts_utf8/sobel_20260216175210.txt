@@ -1,0 +1,216 @@
+# ============================================
+# PEKAT Vision - Code modul
+# Sobelův filtr s nastavitelnými parametry
+# Autor: PEKAT Vision code module helper by P.J.
+# Python 3, knihovny: cv2, numpy
+# ============================================
+
+import cv2
+import numpy as np
+
+# ---------- KONFIGURACE (upravit podle potřeby) ----------
+CONFIG = {
+    # 1) Předzpracování
+    "convert_to_gray": True,     # True: převést vstup na grayscale (doporučeno pro Sobel)
+                                 # False: Sobel se aplikuje zvlášť na každý kanál (RGB)
+
+    # 2) Parametry Sobel operátoru
+    #    - Pokud "combine_xy_magnitude" = True, ignorují se sobel_dx/sobel_dy a počítá se velikost gradientu z obou směrů.
+    "sobel_dx": 1,               # Řád derivace podle X (typicky 1)
+    "sobel_dy": 0,               # Řád derivace podle Y (typicky 1)
+    "ksize": 3,                  # Velikost jádra: 1, 3, 5, 7 (liché, OpenCV povoluje i 1 = Scharr-like; 3 je klasika)
+    "scale": 1.0,                # Měřítko (výstup = scale * derivace + delta)
+    "delta": 0.0,                # Posun
+    "border_type": "default",    # "default" (cv2.BORDER_DEFAULT), "replicate", "reflect", "constant"
+
+    # 3) Způsob kombinace a normalizace
+    "combine_xy_magnitude": True,# True: spočítat grad_x a grad_y a vrátit |∇I| = sqrt(gx^2 + gy^2)
+                                 # False: vrátit výsledek jen pro (sobel_dx, sobel_dy)
+    "abs_grad": True,            # True: použít absolutní hodnotu gradientu (cv2.convertScaleAbs) – typické pro vizualizaci
+    "normalize_0_255": True,     # True: po výpočtu přenormalizovat na rozsah 0–255 (zlepšuje kontrast)
+
+    # 4) Prahování (volitelné)
+    "threshold_enable": False,   # True: aplikovat threshold na výsledek
+    "threshold_value": 50,       # Prah (0–255)
+    "threshold_type": "binary",  # "binary" nebo "binary_inv"
+
+    # 5) Výstupní forma
+    "output_mode": "rgb",        # "rgb" (3 kanály – stejný výsledek ve všech), "gray" (1 kanál),
+                                 # "blend" (překrytí na původním obraze; vyžaduje barevný vstup)
+    "blend_alpha": 0.7,          # Síla překrytí (0–1), 1 = jen výsledek filtru, 0 = jen původní obraz
+
+    # 6) Stabilita / ochrana proti saturaci
+    "clip_before_uint8": True    # True: před převodem na uint8 oříznout do 0–255
+}
+# ---------- KONEC KONFIGURACE ----------
+
+
+# --- Pomocné mapování hraničních podmínek OpenCV ---
+_BORDER_MAP = {
+    "default": cv2.BORDER_DEFAULT,
+    "replicate": cv2.BORDER_REPLICATE,
+    "reflect": cv2.BORDER_REFLECT,
+    "constant": cv2.BORDER_CONSTANT
+}
+
+
+def _to_gray(img):
+    """Bezpečně převede obraz na grayscale (uint8), ponechá pokud už je jednokanálový."""
+    if img.ndim == 2:
+        gray = img
+    else:
+        # OpenCV očekává BGR; PEKAT obvykle drží RGB. Pokud máte jistotu o RGB,
+        # použijeme převod z RGB:
+        gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    # Ujistit se o typu
+    if gray.dtype != np.uint8:
+        gray = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX)
+        gray = gray.astype(np.uint8)
+    return gray
+
+
+def _ensure_u8(img_f):
+    """Převede libovolné float/integrové pole na uint8 s volitelným ořezem."""
+    if CONFIG["clip_before_uint8"]:
+        img_f = np.clip(img_f, 0, 255)
+    return img_f.astype(np.uint8)
+
+
+def _normalize_0_255(img):
+    """Normalizace na rozsah 0–255 (uint8)."""
+    if img.dtype != np.uint8 or img.min() < 0 or img.max() > 255:
+        norm = cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX)
+        return norm.astype(np.uint8)
+    return img
+
+
+def _threshold(img_u8):
+    """Aplikuje prahování (pokud je povoleno). Vrací uint8 obraz (0/255)."""
+    if not CONFIG["threshold_enable"]:
+        return img_u8
+    t = int(CONFIG["threshold_value"])
+    ttype = CONFIG["threshold_type"].lower()
+    if ttype == "binary_inv":
+        _, th = cv2.threshold(img_u8, t, 255, cv2.THRESH_BINARY_INV)
+    else:
+        _, th = cv2.threshold(img_u8, t, 255, cv2.THRESH_BINARY)
+    return th
+
+
+def _sobel_single(gray_or_channel, border_type):
+    """
+    Provede Sobel na jediném kanálu podle CONFIG.
+    Pokud combine_xy_magnitude=True, spočte velikost gradientu z gx a gy.
+    Jinak vrátí výsledek dle (sobel_dx, sobel_dy).
+    """
+    ksize = int(CONFIG["ksize"])
+    scale = float(CONFIG["scale"])
+    delta = float(CONFIG["delta"])
+    abs_grad = bool(CONFIG["abs_grad"])
+    combine_mag = bool(CONFIG["combine_xy_magnitude"])
+
+    ddepth = cv2.CV_16S  # vyšší bitová hloubka kvůli záporným hodnotám a přesnosti
+
+    if combine_mag:
+        # Vypočti gx a gy, poté velikost gradientu
+        gx = cv2.Sobel(gray_or_channel, ddepth, 1, 0, ksize=ksize, scale=scale, delta=delta, borderType=border_type)
+        gy = cv2.Sobel(gray_or_channel, ddepth, 0, 1, ksize=ksize, scale=scale, delta=delta, borderType=border_type)
+
+        if abs_grad:
+            gx = cv2.convertScaleAbs(gx)  # -> uint8
+            gy = cv2.convertScaleAbs(gy)
+            # velikost gradientu ~ sqrt(gx^2 + gy^2)
+            mag = cv2.magnitude(gx.astype(np.float32), gy.astype(np.float32))
+        else:
+            # bez abs: magnitude z signed hodnot
+            mag = cv2.magnitude(gx.astype(np.float32), gy.astype(np.float32))
+
+        # normalizace/měřítko
+        out = mag
+    else:
+        dx = int(CONFIG["sobel_dx"])
+        dy = int(CONFIG["sobel_dy"])
+        sob = cv2.Sobel(gray_or_channel, ddepth, dx, dy, ksize=ksize, scale=scale, delta=delta, borderType=border_type)
+        if abs_grad:
+            out = cv2.convertScaleAbs(sob)  # -> uint8
+        else:
+            out = sob.astype(np.float32)
+
+    # Volitelná normalizace do 0–255
+    if CONFIG["normalize_0_255"]:
+        out = _normalize_0_255(out)
+    else:
+        # Pokud je stále float/signed, převedeme bezpečně na uint8
+        if out.dtype != np.uint8:
+            out = _ensure_u8(out)
+
+    # Prahování (volitelné, pracuje s uint8)
+    out = _threshold(out)
+    return out
+
+
+def main(context):
+    """
+    Vstup:  context['image'] - NumPy pole (RGB nebo grayscale)
+    Výstup: context['image'] - zpracovaný obraz dle CONFIG
+    """
+    # --- 1) Bezpečné načtení vstupu ---
+    if "image" not in context or context["image"] is None:
+        return  # nic ke zpracování
+
+    img = context["image"]
+    if not isinstance(img, np.ndarray):
+        return  # neočekávaný typ
+
+    # Určení hraniční podmínky pro Sobel
+    border_str = str(CONFIG["border_type"]).lower()
+    border_type = _BORDER_MAP.get(border_str, cv2.BORDER_DEFAULT)
+
+    # --- 2) Příprava vstupu pro Sobel ---
+    if CONFIG["convert_to_gray"]:
+        gray = _to_gray(img)
+        sobel_u8 = _sobel_single(gray, border_type)
+        # Výstupní forma
+        mode = CONFIG["output_mode"].lower()
+        if mode == "gray":
+            out = sobel_u8  # 1-kanál
+        elif mode == "blend":
+            # Překrytí na původním obraze (potřebujeme 3 kanály)
+            if img.ndim == 2:
+                base_rgb = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+            else:
+                base_rgb = img
+            # vytvoříme "mapu hran" jako 3-kanál
+            edges_rgb = cv2.cvtColor(sobel_u8, cv2.COLOR_GRAY2RGB)
+            alpha = float(CONFIG["blend_alpha"])
+            alpha = max(0.0, min(1.0, alpha))
+            out = cv2.addWeighted(edges_rgb, alpha, base_rgb, 1.0 - alpha, 0.0)
+        else:
+            # "rgb": naklonovat do 3 kanálů pro lepší náhled
+            out = cv2.cvtColor(sobel_u8, cv2.COLOR_GRAY2RGB)
+    else:
+        # Aplikace Sobel na každý kanál zvlášť (zachováme barevnost)
+        if img.ndim == 2:
+            # Jednokanálový vstup – zpracuj přímo
+            sobel_u8 = _sobel_single(img, border_type)
+            mode = CONFIG["output_mode"].lower()
+            if mode == "gray":
+                out = sobel_u8
+            else:
+                out = cv2.cvtColor(sobel_u8, cv2.COLOR_GRAY2RGB)
+        else:
+            # 3-kanál (předpoklad RGB)
+            ch = cv2.split(img)
+            ch_out = [ _sobel_single(c, border_type) for c in ch ]
+            out = cv2.merge(ch_out)  # výsledné "barevné hrany"
+
+            # Volitelně překrytí
+            if CONFIG["output_mode"].lower() == "blend":
+                alpha = float(CONFIG["blend_alpha"])
+                alpha = max(0.0, min(1.0, alpha))
+                out = cv2.addWeighted(out, alpha, img, 1.0 - alpha, 0.0)
+
+    # --- 3) Zápis výsledku do kontextu ---
+    context["image"] = out
+    # (volitelně: lze nastavovat další klíče pro UI, např. popisek)
+    # context["label_sobel"] = f"Sobel ksize={CONFIG['ksize']} combine={CONFIG['combine_xy_magnitude']}"

@@ -1,12 +1,13 @@
-﻿# -*- mode: python ; coding: utf-8 -*-
+# -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
+from PyInstaller.building.datastruct import Tree
 
 block_cipher = None
 
 pyside6 = collect_all("PySide6")
 
 hiddenimports = pyside6[2]
-datas = pyside6[0]
+datas = pyside6[0] + [Tree("resources", prefix="resources")]
 binaries = pyside6[1]
 
 

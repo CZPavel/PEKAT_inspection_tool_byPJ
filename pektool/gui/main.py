@@ -23,6 +23,7 @@ from ..core.port_info import (
 from ..core.runner import Runner
 from ..logging_setup import setup_logging
 from .state import GuiState
+from .tuning_widgets import PekatTuningTab
 from .widgets import LogEmitter, QtLogHandler
 
 
@@ -33,7 +34,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("PEKAT Inspection Tool V03.3")
+        self.setWindowTitle("PEKAT Inspection Tool V03.4")
         self.resize(980, 640)
 
         self.state = GuiState()
@@ -53,12 +54,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.config_tab = QtWidgets.QWidget()
         self.file_actions_tab = QtWidgets.QWidget()
         self.json_tab = QtWidgets.QWidget()
+        self.tuning_tab = PekatTuningTab()
         self.pekat_info_tab = QtWidgets.QWidget()
         self.log_tab = QtWidgets.QWidget()
 
         self.tabs.addTab(self.config_tab, "Konfigurace")
         self.tabs.addTab(self.file_actions_tab, "Manipulace se soubory")
         self.tabs.addTab(self.json_tab, "Last Context JSON")
+        self.tabs.addTab(self.tuning_tab, "Pekat Tuning")
         self.tabs.addTab(self.pekat_info_tab, "Pekat Info")
         self.tabs.addTab(self.log_tab, "Log")
 

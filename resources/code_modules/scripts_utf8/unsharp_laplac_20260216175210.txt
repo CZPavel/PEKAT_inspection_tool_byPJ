@@ -1,0 +1,103 @@
+import cv2
+import numpy as np
+
+######################## PROGRAM SETTINGS ########################
+MODE = "unsharp"       # "unsharp" nebo "laplacian"
+BASE_AMOUNT = 1.2      # základní síla doostření (0–1.5 doporučeno)
+AUTO_ADAPT = True      # automaticky upravit sílu dle míry rozmazání
+GAUSS_SIGMA = 1.2      # sigma pro unsharp mask (1.0–2.0 běžně)
+LAPLACIAN_ALPHA = 0.7  # míra přimíchání Laplaciánu (0–1.5)
+BLUR_THRESHOLDS = (60, 140)  # (low, high) – variance-of-Laplacian prahy
+DRAW_DEBUG = False     # vykreslit text s metrikou a parametry
+##################################################################
+
+def main(context, module_item=None):
+    img = context.get('image')
+    if img is None:
+        print("[Sharpen] context['image'] není k dispozici.")
+        return
+
+    # ---- volitelné řízení z Operator View (select/slider) ----
+    op = context.get('operatorInput', {}) or {}
+    mode = (op.get('sharpen_mode') or MODE).lower()
+    try:
+        base_amount = float(op.get('sharpen_amount', BASE_AMOUNT))
+    except Exception:
+        base_amount = BASE_AMOUNT
+
+    # ---- zaruč 8bit BGR/GRAY ----
+    arr = img
+    if arr.dtype != np.uint8:
+        arr = cv2.normalize(arr, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+
+    gray = cv2.cvtColor(arr, cv2.COLOR_BGR2GRAY) if arr.ndim == 3 else arr.copy()
+
+    # ---- detekce rozmazání: variance of Laplacian ----
+    lap = cv2.Laplacian(gray, cv2.CV_64F)
+    blur_score = lap.var()  # vyšší = ostřejší
+
+    # ---- adaptace síly ----
+    amount = base_amount
+    if AUTO_ADAPT:
+        low, high = BLUR_THRESHOLDS
+        if blur_score <= low:
+            # hodně rozmazané → přidej sílu (až +80 %)
+            k = np.clip((low - blur_score) / max(1.0, low), 0, 1.0)
+            amount *= (1.0 + 0.8 * k)
+        elif blur_score >= high:
+            # už ostré → uber (až -50 %)
+            k = np.clip((blur_score - high) / max(1.0, high), 0, 1.0)
+            amount *= (1.0 - 0.5 * k)
+    amount = float(np.clip(amount, 0.0, 1.8))
+
+    # ---- vlastní doostření ----
+    if mode == "laplacian":
+        out = _laplacian_sharpen(arr, alpha=min(LAPLACIAN_ALPHA * amount, 1.8))
+        mode_used = "laplacian"
+    else:
+        out = _unsharp_mask(arr, sigma=GAUSS_SIGMA, amount=amount)
+        mode_used = "unsharp"
+
+    # ---- volitelné debug info ----
+    if DRAW_DEBUG:
+        dbg = out if out.ndim == 3 else cv2.cvtColor(out, cv2.COLOR_GRAY2BGR)
+        text = f"blur={blur_score:.1f} mode={mode_used} amt={amount:.2f}"
+        cv2.putText(dbg, text, (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255,255,255), 2, cv2.LINE_AA)
+        out = dbg
+
+    context['image'] = out  # předáme dál do flow
+
+def _unsharp_mask(img, sigma=1.2, amount=0.6):
+    """Klasický unsharp mask: I + amount * (I - Gsigma(I))"""
+    if img.ndim == 2:
+        blur = cv2.GaussianBlur(img, ksize=_best_ksize_from_sigma(sigma), sigmaX=sigma, sigmaY=sigma)
+        sharp = cv2.addWeighted(img, 1.0 + amount, blur, -amount, 0)
+        return sharp
+    else:
+        blur = cv2.GaussianBlur(img, ksize=_best_ksize_from_sigma(sigma), sigmaX=sigma, sigmaY=sigma)
+        sharp = cv2.addWeighted(img, 1.0 + amount, blur, -amount, 0)
+        return sharp
+
+def _laplacian_sharpen(img, alpha=0.7):
+    """Doostření přes Laplacián: I' = I - alpha * Lap(I) (clamp do 0..255)"""
+    if img.ndim == 2:
+        lap = cv2.Laplacian(img, cv2.CV_16S, ksize=3)
+        lap = cv2.convertScaleAbs(lap)
+        out = cv2.addWeighted(img, 1.0, lap, -alpha, 0)  # minus zvýrazní hrany bez zesvětlení
+        return out
+    else:
+        # po kanálech – robustní varianta
+        chans = cv2.split(img)
+        outs = []
+        for ch in chans:
+            lap = cv2.Laplacian(ch, cv2.CV_16S, ksize=3)
+            lap = cv2.convertScaleAbs(lap)
+            outs.append(cv2.addWeighted(ch, 1.0, lap, -alpha, 0))
+        return cv2.merge(outs)
+
+def _best_ksize_from_sigma(sigma):
+    """Doporučená lichá velikost jádra pro Gauss podle sigma."""
+    k = int(round(6 * sigma + 1))
+    if k % 2 == 0:
+        k += 1
+    return (k, k)

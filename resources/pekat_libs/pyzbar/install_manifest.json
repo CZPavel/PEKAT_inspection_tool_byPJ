@@ -1,0 +1,18 @@
+{
+  "library": "pyzbar",
+  "version": "0.1.9",
+  "payload_root": "payload",
+  "target_subdir": "server",
+  "description": "Barcode decoding support for PEKAT Code module.",
+  "items": [
+    {
+      "src": "pyzbar",
+      "dst": "pyzbar"
+    },
+    {
+      "src": "pyzbar-0.1.9.dist-info",
+      "dst": "pyzbar-0.1.9.dist-info"
+    }
+  ]
+}
+

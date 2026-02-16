@@ -1,0 +1,4 @@
+def main(context):
+    context['exit'] = True
+    # Zastav flow
+
