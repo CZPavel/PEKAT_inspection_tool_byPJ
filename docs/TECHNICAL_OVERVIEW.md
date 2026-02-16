@@ -1,4 +1,4 @@
-﻿# PEKAT Inspection Tool - Technical Overview (V03)
+# PEKAT Inspection Tool - Technical Overview (v3.3)
 
 This document describes architecture and runtime behavior of the tool.
 
@@ -117,6 +117,25 @@ The app is split into four layers:
   - `command:<project_path>`
 - Handles `suc:` / `err:` response prefixes
 
+### `pektool/core/port_info.py`
+- Provides data model for PEKAT port diagnostics:
+  - `KnownPortEntry`
+  - `PortScanResult`
+- Collects local listeners using:
+  - PowerShell `Get-NetTCPConnection` (primary)
+  - `netstat -ano` fallback
+- Resolves PID -> process name using:
+  - PowerShell `Get-Process` JSON (primary)
+  - `tasklist` fallback
+- Probes PEKAT ownership signals:
+  - PM HTTP `/projects/list` (port 7000 by default)
+  - PM TCP probe (port 7002 when enabled)
+  - project `/ping` endpoint
+- Supports:
+  - common port checks (7000, 7002, 8000, 1947)
+  - occupied-only range scan for 8000-8100
+  - basic local network summary text (`get_basic_network_info`)
+
 ## Data Flow
 
 1. UI/CLI builds `AppConfig`
@@ -135,6 +154,36 @@ Displayed values:
 - `Prumerny cas (ms)` -> `avg_eval_time_ms`
 - `OK` and `NOK` counters
 - Full JSON of last processed image in dedicated `Last Context JSON` tab
+
+## v3.3 Pekat Info GUI tab
+
+`Pekat Info` tab is read-only diagnostics and does not modify project state.
+
+Main blocks:
+1. Common PEKAT ports table:
+   - description
+   - links
+   - last status
+   - ownership classification
+2. Active scan controls:
+   - `Check common ports`
+   - `Scan range 8000-8100`
+3. Useful links section.
+4. PC network settings section:
+   - refreshed when user opens `Pekat Info` tab
+   - focuses on adapter properties: adapter name, MAC, IPv4/subnet mask, network/profile name
+   - rendered as side-by-side adapter cards
+   - sorting pushes Wi-Fi and Bluetooth adapters to the end
+
+Port ownership classification order:
+1. PM HTTP confirmed
+2. PM TCP confirmed
+3. Running PM project by matching `projects/list` port
+4. `GET /ping` success (`PEKAT project/API likely`)
+5. process-name hint (`pekat`)
+6. fallback to `Other` / `Unknown`
+
+Port `1947` is included as licensing/update port for this installation context.
 
 ## Config Notes
 

@@ -1,4 +1,4 @@
-﻿# PEKAT Inspection Tool
+# PEKAT Inspection Tool (v3.3)
 
 Python app (CLI + GUI) for sending images to PEKAT VISION 3.19.x through SDK or REST API.
 
@@ -82,6 +82,28 @@ GUI shows:
 - average evaluation time (ms)
 - NOK/OK counters
 - full JSON context of last processed image in `Last Context JSON` tab
+
+## Pekat Info tab (v3.3)
+GUI tab `Pekat Info` provides:
+- common PEKAT port overview with short description and clickable links
+- status check for common ports:
+  - 7000 (Projects Manager HTTP list + PM UI link)
+  - 7002 (Projects Manager TCP)
+  - 8000 (project typical API test + project root)
+  - 1947 (licensing/update port for this setup)
+- range scan for project ports `8000-8100`
+- occupied port details:
+  - listening state
+  - PID and process name
+  - best-effort classification (`PEKAT project`, `PEKAT PM HTTP`, `PEKAT PM TCP`, `Other`, ...)
+- adapter-oriented local network section loaded when tab is opened
+  - cards shown side by side
+  - Wi-Fi and Bluetooth adapters are intentionally listed at the end
+
+Useful links section includes:
+- PEKAT homepage
+- PEKAT KB 3.19 Home
+- PEKAT GitHub
 
 ## File Manipulation (V03.1)
 GUI tab `Manipulace se soubory` supports post-evaluation actions:

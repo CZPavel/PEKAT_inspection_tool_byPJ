@@ -1,4 +1,4 @@
-﻿# PEKAT Inspection Tool - User Guide (V03)
+# PEKAT Inspection Tool - User Guide (v3.3)
 
 This guide describes GUI controls and runtime indicators.
 
@@ -76,8 +76,66 @@ Notes:
 ## Tabs
 
 - `Manipulace se soubory`: post-evaluation delete/move rules
-- `Log`: runtime log stream
 - `Last Context JSON`: full JSON of last processed image context (or last error payload)
+- `Pekat Info`: local PEKAT port overview, port scan, and useful links
+- `Log`: runtime log stream
+
+## Tab: Pekat Info
+
+The tab has three sections.
+
+### 1) Common PEKAT ports
+Shows frequently used ports and ranges:
+- `7000`: Projects Manager HTTP (`/projects/list`)
+- `7002`: Projects Manager TCP control
+- `8000`: typical project API port
+- `8000-8100`: project scan range used by this tool
+- `1947`: licensing/update port (configured for this setup)
+
+Each row includes:
+- short purpose text
+- clickable URL link
+- last checked status
+- ownership classification
+
+### 2) Port status check
+Buttons:
+- `Check common ports`
+- `Scan range 8000-8100`
+
+Output table shows:
+- port
+- listening state
+- PID
+- process name
+- ownership classification
+- detail text
+
+Ownership is best-effort and can be:
+- `PEKAT PM HTTP`
+- `PEKAT PM TCP`
+- `PEKAT project`
+- `PEKAT project/API likely`
+- `PEKAT related`
+- `Other`
+- `Unknown`
+
+### 3) Useful links
+Quick links to:
+- PEKAT homepage
+- PEKAT KB 3.19 Home
+- PEKAT GitHub
+
+### 4) PC network settings
+- A basic adapter-focused network summary is shown at the bottom of the tab.
+- The data is loaded automatically when you switch to `Pekat Info`.
+- Adapter sections are shown side by side.
+- Wi-Fi and Bluetooth adapters are listed at the end.
+- Typical fields:
+  - adapter name
+  - MAC address
+  - IPv4 address and subnet mask
+  - connected network name/profile (when available)
 
 ## Tab: Manipulace se soubory
 

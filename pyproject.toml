@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pektool"
-version = "1.0.1.dev0"
+version = "3.3.0"
 description = "PEKAT Inspection Tool"
 requires-python = ">=3.8"
 readme = "README.md"

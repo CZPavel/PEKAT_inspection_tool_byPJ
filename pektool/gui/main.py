@@ -4,13 +4,22 @@ import logging
 import threading
 import time
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 import yaml
 from PySide6 import QtCore, QtWidgets
 
 from ..config import AppConfig
 from ..core.connection import ConnectionManager
+from ..core.port_info import (
+    KnownPortEntry,
+    NetworkAdapterInfo,
+    PortScanResult,
+    check_ports,
+    get_network_adapters_info,
+    get_known_pekat_ports,
+    scan_port_range,
+)
 from ..core.runner import Runner
 from ..logging_setup import setup_logging
 from .state import GuiState
@@ -20,9 +29,11 @@ from .widgets import LogEmitter, QtLogHandler
 class MainWindow(QtWidgets.QMainWindow):
     """Main GUI window for configuration, control and live feedback."""
 
+    ui_callback_signal = QtCore.Signal(object)
+
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("PEKAT Inspection Tool V03.1")
+        self.setWindowTitle("PEKAT Inspection Tool V03.3")
         self.resize(980, 640)
 
         self.state = GuiState()
@@ -31,24 +42,31 @@ class MainWindow(QtWidgets.QMainWindow):
         self.stop_start_time: float | None = None
         self.last_ping_time = 0.0
         self.health_check_inflight = False
+        self.port_scan_running = False
+        self.network_info_loading = False
+        self.known_port_entries: List[KnownPortEntry] = []
+        self.known_port_row_map: Dict[str, List[int]] = {}
 
         self.tabs = QtWidgets.QTabWidget()
         self.setCentralWidget(self.tabs)
 
         self.config_tab = QtWidgets.QWidget()
         self.file_actions_tab = QtWidgets.QWidget()
-        self.log_tab = QtWidgets.QWidget()
         self.json_tab = QtWidgets.QWidget()
+        self.pekat_info_tab = QtWidgets.QWidget()
+        self.log_tab = QtWidgets.QWidget()
 
         self.tabs.addTab(self.config_tab, "Konfigurace")
         self.tabs.addTab(self.file_actions_tab, "Manipulace se soubory")
         self.tabs.addTab(self.json_tab, "Last Context JSON")
+        self.tabs.addTab(self.pekat_info_tab, "Pekat Info")
         self.tabs.addTab(self.log_tab, "Log")
 
         self._build_config_tab()
         self._build_file_actions_tab()
-        self._build_log_tab()
         self._build_json_tab()
+        self._build_pekat_info_tab()
+        self._build_log_tab()
 
         self.emitter = LogEmitter()
         self.emitter.message.connect(self._append_log)
@@ -58,6 +76,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.timer = QtCore.QTimer(self)
         self.timer.setInterval(1000)
         self.timer.timeout.connect(self._update_status)
+        self.ui_callback_signal.connect(lambda callback: callback())
+        self.tabs.currentChanged.connect(self._on_tab_changed)
 
         self._load_gui_settings()
 
@@ -413,6 +433,318 @@ class MainWindow(QtWidgets.QMainWindow):
         self.json_view.setReadOnly(True)
         self.json_view.setPlainText("{}")
         layout.addWidget(self.json_view)
+
+    def _build_pekat_info_tab(self) -> None:
+        layout = QtWidgets.QVBoxLayout(self.pekat_info_tab)
+
+        common_group = QtWidgets.QGroupBox("Common PEKAT ports")
+        common_layout = QtWidgets.QVBoxLayout(common_group)
+        self.common_ports_table = QtWidgets.QTableWidget(0, 5)
+        self.common_ports_table.setHorizontalHeaderLabels(
+            ["Port / Range", "Purpose", "Link", "Last status", "Owner classification"]
+        )
+        self.common_ports_table.verticalHeader().setVisible(False)
+        self.common_ports_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        self.common_ports_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        self.common_ports_table.horizontalHeader().setStretchLastSection(True)
+        common_layout.addWidget(self.common_ports_table)
+        layout.addWidget(common_group)
+
+        scan_group = QtWidgets.QGroupBox("Port status check")
+        scan_layout = QtWidgets.QVBoxLayout(scan_group)
+        controls_layout = QtWidgets.QHBoxLayout()
+        self.check_common_ports_btn = QtWidgets.QPushButton("Check common ports")
+        self.scan_range_btn = QtWidgets.QPushButton("Scan range 8000-8100")
+        self.port_scan_status_label = QtWidgets.QLabel("Idle")
+        controls_layout.addWidget(self.check_common_ports_btn)
+        controls_layout.addWidget(self.scan_range_btn)
+        controls_layout.addWidget(self.port_scan_status_label)
+        controls_layout.addStretch(1)
+        scan_layout.addLayout(controls_layout)
+
+        self.port_scan_table = QtWidgets.QTableWidget(0, 6)
+        self.port_scan_table.setHorizontalHeaderLabels(
+            ["Port", "Listening", "PID", "Process", "Allocated by", "Detail"]
+        )
+        self.port_scan_table.verticalHeader().setVisible(False)
+        self.port_scan_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        self.port_scan_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        self.port_scan_table.horizontalHeader().setStretchLastSection(True)
+        scan_layout.addWidget(self.port_scan_table)
+        layout.addWidget(scan_group)
+
+        links_group = QtWidgets.QGroupBox("Useful links")
+        links_layout = QtWidgets.QFormLayout(links_group)
+        links_layout.addRow(
+            "PEKAT homepage",
+            self._make_link_label("https://www.pekatvision.com"),
+        )
+        links_layout.addRow(
+            "PEKAT KB 3.19 Home",
+            self._make_link_label(
+                "https://pekatvision.atlassian.net/wiki/spaces/KB34/pages/1207107616/PEKAT+VISION+Knowledge+base+3.19+Home"
+            ),
+        )
+        links_layout.addRow(
+            "PEKAT GitHub",
+            self._make_link_label("https://github.com/pekat-vision"),
+        )
+        layout.addWidget(links_group)
+
+        network_group = QtWidgets.QGroupBox()
+        network_layout = QtWidgets.QVBoxLayout(network_group)
+        network_header_layout = QtWidgets.QHBoxLayout()
+        network_title_label = QtWidgets.QLabel("PC network settings")
+        title_font = network_title_label.font()
+        title_font.setBold(True)
+        network_title_label.setFont(title_font)
+        self.network_info_status_label = QtWidgets.QLabel("Status: not loaded")
+        self.network_info_status_label.setStyleSheet("color: #666;")
+        network_header_layout.addWidget(network_title_label)
+        network_header_layout.addStretch(1)
+        network_header_layout.addWidget(self.network_info_status_label)
+
+        self.network_cards_scroll = QtWidgets.QScrollArea()
+        self.network_cards_scroll.setWidgetResizable(True)
+        self.network_cards_container = QtWidgets.QWidget()
+        self.network_cards_layout = QtWidgets.QGridLayout(self.network_cards_container)
+        self.network_cards_layout.setContentsMargins(6, 6, 6, 6)
+        self.network_cards_layout.setHorizontalSpacing(12)
+        self.network_cards_layout.setVerticalSpacing(10)
+        self.network_cards_scroll.setWidget(self.network_cards_container)
+
+        network_layout.addLayout(network_header_layout)
+        network_layout.addWidget(self.network_cards_scroll)
+        layout.addWidget(network_group)
+        layout.addStretch(1)
+
+        self.check_common_ports_btn.clicked.connect(self._check_common_ports)
+        self.scan_range_btn.clicked.connect(self._scan_range_ports)
+        self._populate_known_ports_table()
+
+    @staticmethod
+    def _make_link_label(url: str) -> QtWidgets.QLabel:
+        label = QtWidgets.QLabel(f"<a href='{url}'>{url}</a>")
+        label.setOpenExternalLinks(True)
+        label.setTextInteractionFlags(QtCore.Qt.TextBrowserInteraction)
+        return label
+
+    @staticmethod
+    def _set_table_item(table: QtWidgets.QTableWidget, row: int, col: int, value: str) -> None:
+        item = QtWidgets.QTableWidgetItem(value)
+        table.setItem(row, col, item)
+
+    def _populate_known_ports_table(self) -> None:
+        self.known_port_entries = get_known_pekat_ports()
+        self.known_port_row_map = {}
+        self.common_ports_table.setRowCount(len(self.known_port_entries))
+
+        for row, entry in enumerate(self.known_port_entries):
+            self.known_port_row_map.setdefault(entry.port, []).append(row)
+            self._set_table_item(self.common_ports_table, row, 0, entry.port)
+            self._set_table_item(self.common_ports_table, row, 1, entry.purpose)
+            link_label = self._make_link_label(entry.link)
+            self.common_ports_table.setCellWidget(row, 2, link_label)
+            self._set_table_item(self.common_ports_table, row, 3, "-")
+            self._set_table_item(self.common_ports_table, row, 4, "-")
+
+        self.common_ports_table.resizeColumnsToContents()
+
+    def _set_known_port_status(self, key: str, status: str, owner: str) -> None:
+        rows = self.known_port_row_map.get(key, [])
+        if not rows:
+            return
+        for row in rows:
+            self._set_table_item(self.common_ports_table, row, 3, status)
+            self._set_table_item(self.common_ports_table, row, 4, owner)
+
+    def _check_common_ports(self) -> None:
+        if self.port_scan_running:
+            return
+        self.port_scan_running = True
+        self.check_common_ports_btn.setEnabled(False)
+        self.scan_range_btn.setEnabled(False)
+        self.port_scan_status_label.setText("Scanning common ports...")
+
+        def worker() -> None:
+            try:
+                results = check_ports([7000, 7002, 8000, 1947], include_closed=True)
+                range_results = scan_port_range(8000, 8100)
+                self._post_to_ui(lambda: self._apply_common_scan_results(results, range_results))
+            except Exception as exc:
+                self._post_to_ui(
+                    lambda message=str(exc): self.port_scan_status_label.setText(f"Error: {message}")
+                )
+            finally:
+                self._post_to_ui(self._finish_port_scan)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _scan_range_ports(self) -> None:
+        if self.port_scan_running:
+            return
+        self.port_scan_running = True
+        self.check_common_ports_btn.setEnabled(False)
+        self.scan_range_btn.setEnabled(False)
+        self.port_scan_status_label.setText("Scanning range 8000-8100...")
+
+        def worker() -> None:
+            try:
+                results = scan_port_range(8000, 8100)
+                self._post_to_ui(lambda: self._fill_scan_table(results))
+                occupied = len(results)
+                self._post_to_ui(
+                    lambda: self._set_known_port_status(
+                        "8000-8100",
+                        f"Occupied: {occupied}",
+                        "Use table below for details",
+                    )
+                )
+                self._post_to_ui(lambda: self.port_scan_status_label.setText("Done"))
+            except Exception as exc:
+                self._post_to_ui(
+                    lambda message=str(exc): self.port_scan_status_label.setText(f"Error: {message}")
+                )
+            finally:
+                self._post_to_ui(self._finish_port_scan)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _post_to_ui(self, callback) -> None:
+        self.ui_callback_signal.emit(callback)
+
+    def _finish_port_scan(self) -> None:
+        self.port_scan_running = False
+        self.check_common_ports_btn.setEnabled(True)
+        self.scan_range_btn.setEnabled(True)
+        if self.port_scan_status_label.text().startswith("Scanning"):
+            self.port_scan_status_label.setText("Done")
+
+    def _apply_common_scan_results(
+        self, results: List[PortScanResult], range_results: List[PortScanResult]
+    ) -> None:
+        result_map = {result.port: result for result in results}
+        for port in [7000, 7002, 8000, 1947]:
+            result = result_map.get(port)
+            if result is None:
+                self._set_known_port_status(str(port), "No data", "Unknown")
+                continue
+            if result.listening:
+                status = f"Listening (PID {result.pid or '-'})"
+            else:
+                status = "Closed"
+            self._set_known_port_status(str(port), status, result.allocated_by)
+
+        occupied = len(range_results)
+        self._set_known_port_status(
+            "8000-8100",
+            f"Occupied: {occupied}",
+            "Use table below for details",
+        )
+
+        self._fill_scan_table(results + range_results)
+        self.port_scan_status_label.setText("Done")
+
+    def _fill_scan_table(self, results: List[PortScanResult]) -> None:
+        unique_results: Dict[int, PortScanResult] = {}
+        for result in results:
+            unique_results[result.port] = result
+        rows = sorted(unique_results.values(), key=lambda item: item.port)
+
+        self.port_scan_table.setRowCount(len(rows))
+        for row_idx, item in enumerate(rows):
+            self._set_table_item(self.port_scan_table, row_idx, 0, str(item.port))
+            self._set_table_item(
+                self.port_scan_table, row_idx, 1, "Yes" if item.listening else "No"
+            )
+            self._set_table_item(
+                self.port_scan_table,
+                row_idx,
+                2,
+                "" if item.pid is None else str(item.pid),
+            )
+            self._set_table_item(self.port_scan_table, row_idx, 3, item.process_name or "-")
+            self._set_table_item(self.port_scan_table, row_idx, 4, item.allocated_by)
+            self._set_table_item(self.port_scan_table, row_idx, 5, item.detail)
+
+        self.port_scan_table.resizeColumnsToContents()
+
+    def _on_tab_changed(self, index: int) -> None:
+        if self.tabs.widget(index) is self.pekat_info_tab:
+            self._load_network_info()
+
+    def _load_network_info(self) -> None:
+        if self.network_info_loading:
+            return
+        self.network_info_loading = True
+        self.network_info_status_label.setText("Status: loading...")
+
+        def worker() -> None:
+            try:
+                adapters = get_network_adapters_info()
+                self._post_to_ui(lambda payload=adapters: self._render_network_adapters(payload))
+                self._post_to_ui(
+                    lambda: self.network_info_status_label.setText("Status: loaded")
+                )
+            except Exception as exc:
+                self._post_to_ui(
+                    lambda message=str(exc): self.network_info_status_label.setText(
+                        f"Status: error ({message})"
+                    )
+                )
+            finally:
+                self._post_to_ui(self._finish_network_info_load)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_network_info_load(self) -> None:
+        self.network_info_loading = False
+
+    @staticmethod
+    def _adapter_priority(adapter_name: str) -> int:
+        lowered = (adapter_name or "").lower()
+        if "bluetooth" in lowered:
+            return 2
+        if "wi-fi" in lowered or "wifi" in lowered or "wireless" in lowered or "wlan" in lowered:
+            return 1
+        return 0
+
+    def _clear_network_cards(self) -> None:
+        while self.network_cards_layout.count():
+            item = self.network_cards_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+    def _render_network_adapters(self, adapters: List[NetworkAdapterInfo]) -> None:
+        self._clear_network_cards()
+        if not adapters:
+            label = QtWidgets.QLabel("No adapter data available.")
+            self.network_cards_layout.addWidget(label, 0, 0)
+            return
+
+        sorted_adapters = sorted(
+            adapters,
+            key=lambda item: (self._adapter_priority(item.adapter_name), item.adapter_name.lower()),
+        )
+
+        for idx, adapter in enumerate(sorted_adapters):
+            card = QtWidgets.QGroupBox(adapter.adapter_name or "Unknown adapter")
+            card_layout = QtWidgets.QFormLayout(card)
+            network_label = QtWidgets.QLabel(adapter.network_name or "-")
+            mac_label = QtWidgets.QLabel(adapter.mac_address or "-")
+            ipv4_label = QtWidgets.QLabel("\n".join(adapter.ipv4_with_masks or ["- / -"]))
+            ipv4_label.setWordWrap(True)
+            card_layout.addRow("Network", network_label)
+            card_layout.addRow("MAC", mac_label)
+            card_layout.addRow("IPv4/Subnet", ipv4_label)
+
+            row = idx // 2
+            col = idx % 2
+            self.network_cards_layout.addWidget(card, row, col)
+
+        self.network_cards_layout.setColumnStretch(0, 1)
+        self.network_cards_layout.setColumnStretch(1, 1)
 
     def _select_folder(self) -> None:
         folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Vyberte složku")
