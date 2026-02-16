@@ -36,6 +36,7 @@ All notable changes to this project are documented in this file.
 - Updated `README.md` with v3.4 tuning features.
 - Updated `docs/USER_GUIDE.md` with Pekat Tuning user workflow.
 - Updated `docs/TECHNICAL_OVERVIEW.md` with new catalog/installer architecture.
+- Added `docs/NEXT_STEPS.md` with follow-up items (user test, script descriptions, sound camera idea).
 
 ## [3.3.0] - 2026-02-16
 

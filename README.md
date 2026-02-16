@@ -164,3 +164,8 @@ Build output:
 - `dist/PEKAT_Inspection_tool_by_PJ/pektool.exe`
 
 `resources/` directory is bundled into PyInstaller output for runtime catalog and installer assets.
+## Forward backlog
+- Follow-up plan is tracked in `docs/NEXT_STEPS.md` for next development iteration.
+- Current priorities: user acceptance test of v3.4 and script description cleanup.
+- Candidate future feature: `Sound camera` integration concept.
+
