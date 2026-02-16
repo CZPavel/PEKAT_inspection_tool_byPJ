@@ -1,4 +1,4 @@
-# PEKAT Inspection Tool (v3.3)
+# PEKAT Inspection Tool (v3.4)
 
 Python app (CLI + GUI) for sending images to PEKAT VISION 3.19.x through SDK or REST API.
 
@@ -83,7 +83,33 @@ GUI shows:
 - NOK/OK counters
 - full JSON context of last processed image in `Last Context JSON` tab
 
-## Pekat Info tab (v3.3)
+## Pekat Tuning tab (v3.4)
+GUI tab `Pekat Tuning` provides two sections:
+
+1) Code Module Script Catalog
+- central storage under `resources/code_modules`
+- import base scripts from predefined source folder
+- script list with search and category filter
+- UTF-8 preview of selected script
+- actions:
+  - `Import base scripts`
+  - `Refresh catalog`
+  - `Copy as text`
+  - `Export selected...`
+  - `Open storage folder`
+
+2) Library Installer
+- wizard-based install flow for PEKAT extension libraries
+- first implemented package: `pyzbar`
+- dry-run preview before copy
+- optional backup before overwrite
+- placeholder buttons reserved for future libraries
+
+Bundled pyzbar payload is stored in:
+- `resources/pekat_libs/pyzbar/payload`
+- manifest: `resources/pekat_libs/pyzbar/install_manifest.json`
+
+## Pekat Info tab (v3.4)
 GUI tab `Pekat Info` provides:
 - common PEKAT port overview with short description and clickable links
 - status check for common ports:
@@ -105,7 +131,7 @@ Useful links section includes:
 - PEKAT KB 3.19 Home
 - PEKAT GitHub
 
-## File Manipulation (V03.1)
+## File Manipulation (V03.1+)
 GUI tab `Manipulace se soubory` supports post-evaluation actions:
 - delete evaluated files
 - move by result (OK/NOK)
@@ -136,3 +162,5 @@ pyinstaller --clean --noconfirm pyinstaller.spec
 Build output:
 - `dist/PEKAT_Inspection_tool_by_PJ/pektool-gui.exe`
 - `dist/PEKAT_Inspection_tool_by_PJ/pektool.exe`
+
+`resources/` directory is bundled into PyInstaller output for runtime catalog and installer assets.

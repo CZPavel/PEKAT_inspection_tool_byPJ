@@ -1,4 +1,4 @@
-# PEKAT Inspection Tool - User Guide (v3.3)
+# PEKAT Inspection Tool - User Guide (v3.4)
 
 This guide describes GUI controls and runtime indicators.
 
@@ -77,8 +77,53 @@ Notes:
 
 - `Manipulace se soubory`: post-evaluation delete/move rules
 - `Last Context JSON`: full JSON of last processed image context (or last error payload)
+- `Pekat Tuning`: script catalog and PEKAT library installer
 - `Pekat Info`: local PEKAT port overview, port scan, and useful links
 - `Log`: runtime log stream
+
+## Tab: Pekat Tuning
+
+The tab has two sections.
+
+### 1) Code Module Script Catalog
+- Script storage is kept inside app tree:
+  - `resources/code_modules/scripts_raw`
+  - `resources/code_modules/scripts_utf8`
+  - `resources/code_modules/pmodule`
+  - `resources/code_modules/catalog.json`
+- Use `Import base scripts` to import scripts from source folder.
+- Supported formats:
+  - `.txt`
+  - `.py`
+  - `.pmodule` (metadata cataloging for now)
+
+Catalog behavior:
+- text files are decoded using UTF-8 first, then cp1250/latin1 fallback
+- canonical UTF-8 copy is created for preview/copy
+- raw source copy is preserved for traceability
+
+Available actions:
+- `Refresh catalog`
+- `Copy as text`
+- `Export selected...`
+- `Open storage folder`
+
+### 2) Library Installer
+- `Install pyzbar` starts guided installation wizard.
+- Placeholder buttons are reserved for future libraries.
+
+Wizard flow:
+1. warning page
+2. PEKAT path selection (expects `...\\server`)
+3. pre-check (write access and running process hint)
+4. dry-run summary (files/new/overwrite/size)
+5. execute install with optional backup
+
+Install source:
+- `resources/pekat_libs/pyzbar/payload`
+
+Backup location:
+- `logs/installer/installer_backups/<timestamp>`
 
 ## Tab: Pekat Info
 

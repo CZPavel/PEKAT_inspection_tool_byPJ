@@ -1,4 +1,4 @@
-# PEKAT Inspection Tool - Technical Overview (v3.3)
+# PEKAT Inspection Tool - Technical Overview (v3.4)
 
 This document describes architecture and runtime behavior of the tool.
 
@@ -136,6 +136,28 @@ The app is split into four layers:
   - occupied-only range scan for 8000-8100
   - basic local network summary text (`get_basic_network_info`)
 
+### `pektool/core/tuning_catalog.py`
+- Manages script catalog storage for PEKAT Code module helpers.
+- Creates and maintains:
+  - `resources/code_modules/scripts_raw`
+  - `resources/code_modules/scripts_utf8`
+  - `resources/code_modules/pmodule`
+  - `resources/code_modules/catalog.json`
+- Import pipeline:
+  - UTF-8 decode first
+  - fallback cp1250/latin1
+  - canonical UTF-8 copy + raw copy
+- Supports listing/filtering/search and exporting scripts.
+
+### `pektool/core/library_installer.py`
+- Loads library install manifest from:
+  - `resources/pekat_libs/<lib>/install_manifest.json`
+- Builds dry-run install plan (new/overwrite/size).
+- Validates PEKAT target path (`<PEKAT_ROOT>/server`).
+- Executes copy with optional backup:
+  - `logs/installer/installer_backups/<timestamp>`
+- Includes tasklist-based running process hint.
+
 ## Data Flow
 
 1. UI/CLI builds `AppConfig`
@@ -155,7 +177,16 @@ Displayed values:
 - `OK` and `NOK` counters
 - Full JSON of last processed image in dedicated `Last Context JSON` tab
 
-## v3.3 Pekat Info GUI tab
+## v3.4 Pekat Tuning + Pekat Info GUI tabs
+
+`Pekat Tuning` tab:
+1. Script Catalog section:
+   - table + search + category filter
+   - script preview
+   - clipboard/export/storage actions
+2. Library Installer section:
+   - pyzbar install wizard
+   - placeholder controls for future libraries
 
 `Pekat Info` tab is read-only diagnostics and does not modify project state.
 
