@@ -88,19 +88,35 @@ GUI tab `Pekat Tuning` provides two sections:
 
 1) Code Module Script Catalog
 - central storage under `resources/code_modules`
-- import base scripts from predefined source folder
+- destructive sync from predefined source folder `C:\VS_CODE_PROJECTS\SCRIPTY_PEKAT_CODE`
+- old catalog items are deleted during replace sync
 - script list with search and category filter
 - UTF-8 preview of selected script
 - actions:
-  - `Import base scripts`
+  - `Nahradit skripty ze zdroje`
   - `Refresh catalog`
   - `Copy as text`
   - `Export selected...`
   - `Open storage folder`
+- table columns are aligned with spreadsheet structure:
+  - `Soubor`
+  - `Kategorie`
+  - `K cemu slouzi`
+  - `Co dela`
+  - `Klicove context`
+  - `Zavislosti`
+- metadata sources:
+  - XLSX overview in source folder
+  - supplemental TXT description in source folder
+  - generated fallback when metadata is missing
+- empty script files are skipped during sync (`PYZBAR_BARCODE_READER.txt` is intentionally excluded)
+- synchronized catalog list is documented in `docs/PEKAT_CODE_SCRIPT_CATALOG.md`
 
 2) Library Installer
 - wizard-based install flow for PEKAT extension libraries
 - first implemented package: `pyzbar`
+- default path targets numerically newest `C:\Program Files\PEKAT VISION x.y.z`
+- pre-check includes path validity, write access, running-process hint and offline payload completeness
 - dry-run preview before copy
 - optional backup before overwrite
 - placeholder buttons reserved for future libraries

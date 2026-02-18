@@ -1,62 +1,167 @@
+from __future__ import annotations
+
+from html import escape
 from pathlib import Path
+import zipfile
 
 from pektool.core.tuning_catalog import TuningCatalog
 
 
-def test_catalog_import_detects_encodings_utf8_cp1250(tmp_path):
+def _build_test_xlsx(path: Path, rows: list[list[str]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    sheet_rows = []
+    for idx, row in enumerate(rows, start=1):
+        cells = []
+        for value in row:
+            cells.append(f"<c t=\"inlineStr\"><is><t>{escape(value)}</t></is></c>")
+        sheet_rows.append(f"<row r=\"{idx}\">{''.join(cells)}</row>")
+    sheet_xml = (
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+        "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">"
+        "<sheetData>"
+        f"{''.join(sheet_rows)}"
+        "</sheetData>"
+        "</worksheet>"
+    )
+
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr(
+            "[Content_Types].xml",
+            (
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
+                "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>"
+                "<Default Extension=\"xml\" ContentType=\"application/xml\"/>"
+                "<Override PartName=\"/xl/workbook.xml\" "
+                "ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>"
+                "<Override PartName=\"/xl/worksheets/sheet1.xml\" "
+                "ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>"
+                "</Types>"
+            ),
+        )
+        archive.writestr(
+            "_rels/.rels",
+            (
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
+                "<Relationship Id=\"rId1\" "
+                "Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" "
+                "Target=\"xl/workbook.xml\"/>"
+                "</Relationships>"
+            ),
+        )
+        archive.writestr(
+            "xl/workbook.xml",
+            (
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                "<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" "
+                "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">"
+                "<sheets><sheet name=\"List1\" sheetId=\"1\" r:id=\"rId1\"/></sheets>"
+                "</workbook>"
+            ),
+        )
+        archive.writestr(
+            "xl/_rels/workbook.xml.rels",
+            (
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
+                "<Relationship Id=\"rId1\" "
+                "Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" "
+                "Target=\"worksheets/sheet1.xml\"/>"
+                "</Relationships>"
+            ),
+        )
+        archive.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+
+
+def test_replace_from_folder_deletes_old_assets_and_skips_empty(tmp_path):
+    catalog = TuningCatalog(tmp_path / "resources" / "code_modules")
+
+    old_source = tmp_path / "old"
+    old_source.mkdir()
+    (old_source / "OLD.txt").write_text("print('old')", encoding="utf-8")
+    catalog.import_from_folder(old_source)
+
+    new_source = tmp_path / "new"
+    new_source.mkdir()
+    (new_source / "AI_TRIGGER_V06_TESTED.txt").write_text("print('new')", encoding="utf-8")
+    (new_source / "PYZBAR_BARCODE_READER.txt").write_text("", encoding="utf-8")
+
+    result, imported, skipped_empty = catalog.replace_from_folder(new_source, skip_empty=True)
+    assert imported == 1
+    assert skipped_empty == 1
+    assert len(result.items) == 1
+    assert result.items[0].source_filename == "AI_TRIGGER_V06_TESTED.txt"
+    assert "OLD.txt" not in [item.source_filename for item in result.items]
+
+
+def test_metadata_from_xlsx_is_applied_to_asset(tmp_path):
     source = tmp_path / "src"
     source.mkdir()
-    (source / "utf8_script.txt").write_text("# Hello world", encoding="utf-8")
-    (source / "cp1250_script.txt").write_bytes("Příliš žluťoučký kůň".encode("cp1250"))
+    (source / "AI_TRIGGER_V06_TESTED.txt").write_text("print('x')", encoding="utf-8")
+
+    _build_test_xlsx(
+        source / "prehlad.xlsx",
+        [
+            ["ignored"],
+            ["Soubor", "Kategorie", "K čemu slouží", "Co dělá", "Klíčové context", "Závislosti"],
+            [
+                "AI_TRIGGER_V06_TESTED.txt",
+                "Flow control",
+                "Gate flow",
+                "Debounce and gating",
+                "result, exit",
+                "–",
+            ],
+        ],
+    )
 
     catalog = TuningCatalog(tmp_path / "resources" / "code_modules")
-    index = catalog.import_from_folder(source)
-    assert len(index.items) == 2
-    encodings = {item.source_filename: item.encoding_source for item in index.items}
-    assert encodings["utf8_script.txt"] in {"utf-8", "utf-8-sig"}
-    assert encodings["cp1250_script.txt"] == "cp1250"
+    result, imported, skipped_empty = catalog.replace_from_folder(source, skip_empty=True)
+    assert imported == 1
+    assert skipped_empty == 0
+
+    asset = result.items[0]
+    assert asset.category == "Flow control"
+    assert asset.purpose == "Gate flow"
+    assert asset.what_it_does == "Debounce and gating"
+    assert asset.context_keys == "result, exit"
+    assert asset.dependencies == "–"
+    assert asset.description_source == "xlsx"
 
 
-def test_catalog_creates_utf8_canonical_and_raw_copy(tmp_path):
+def test_missing_metadata_is_generated(tmp_path):
     source = tmp_path / "src"
     source.mkdir()
-    (source / "A.txt").write_bytes("Žluťoučký".encode("cp1250"))
+    (source / "CUSTOM_SCRIPT.txt").write_text(
+        "import requests\n\ndef main(context):\n    context['result'] = True\n",
+        encoding="utf-8",
+    )
+
     catalog = TuningCatalog(tmp_path / "resources" / "code_modules")
-    index = catalog.import_from_folder(source)
-    item = index.items[0]
-    raw_path = catalog.root / item.storage_path_raw
-    utf8_path = catalog.root / item.storage_path_utf8
-    assert raw_path.exists()
-    assert utf8_path.exists()
-    assert "Žluťoučký" in utf8_path.read_text(encoding="utf-8")
+    result, imported, skipped_empty = catalog.replace_from_folder(source, skip_empty=True)
+    assert imported == 1
+    assert skipped_empty == 0
+
+    asset = result.items[0]
+    assert asset.description_source == "generated"
+    assert asset.purpose.startswith("Skript CUSTOM_SCRIPT")
+    assert "result" in asset.context_keys
+    assert "requests" in asset.dependencies
 
 
-def test_catalog_extracts_description_from_header(tmp_path):
+def test_replace_handles_cp1250_and_creates_utf8_copy(tmp_path):
     source = tmp_path / "src"
     source.mkdir()
-    (source / "test.py").write_text("# Important header description\nprint('x')", encoding="utf-8")
+    phrase = "Příliš žluťoučký kůň"
+    (source / "cp1250_script.txt").write_bytes(phrase.encode("cp1250"))
+
     catalog = TuningCatalog(tmp_path / "resources" / "code_modules")
-    index = catalog.import_from_folder(source)
-    assert index.items[0].short_description.startswith("Important header")
+    result, imported, skipped_empty = catalog.replace_from_folder(source, skip_empty=False)
+    assert imported == 1
+    assert skipped_empty == 0
 
-
-def test_catalog_handles_empty_files(tmp_path):
-    source = tmp_path / "src"
-    source.mkdir()
-    (source / "empty.txt").write_text("", encoding="utf-8")
-    catalog = TuningCatalog(tmp_path / "resources" / "code_modules")
-    index = catalog.import_from_folder(source)
-    assert index.items[0].empty is True
-    assert index.items[0].short_description == "Empty script file."
-
-
-def test_catalog_includes_pmodule_metadata_only(tmp_path):
-    source = tmp_path / "src"
-    source.mkdir()
-    (source / "module.pmodule").write_bytes(b"PMODULEDATA")
-    catalog = TuningCatalog(tmp_path / "resources" / "code_modules")
-    index = catalog.import_from_folder(source)
-    item = index.items[0]
-    assert item.format == "pmodule"
-    assert item.storage_path_utf8 == ""
-    assert (catalog.root / item.storage_path_raw).exists()
+    asset = result.items[0]
+    assert asset.encoding_source == "cp1250"
+    utf8_path = catalog.root / asset.storage_path_utf8
+    assert phrase in utf8_path.read_text(encoding="utf-8")

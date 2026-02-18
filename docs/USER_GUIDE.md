@@ -78,8 +78,24 @@ Notes:
 - `Manipulace se soubory`: post-evaluation delete/move rules
 - `Last Context JSON`: full JSON of last processed image context (or last error payload)
 - `Pekat Tuning`: script catalog and PEKAT library installer
+- `Audio / Mikrofon`: periodicke audio snapshoty jako spektrogram PNG
 - `Pekat Info`: local PEKAT port overview, port scan, and useful links
 - `Log`: runtime log stream
+
+## Tab: Audio / Mikrofon
+
+- `Povolit mikrofon`: zapina periodicke audio snimani
+- `Mikrofon`: vyber vstupniho zarizeni (`Default system microphone` nebo konkretni vstup)
+- `Snapshot slozka`: cilova slozka pro generovane spektrogramy PNG
+- `Interval`: perioda snimku (default `2.0 s`)
+- `Delka snimku`: delka audio okna pro spektrogram (default `1.0 s`)
+- `Sample rate`: vzorkovaci frekvence (default `16000`)
+
+Chovani:
+- Audio bezi pouze pri `Start sending` a zastavi se pri `Stop sending`.
+- Pri zapnutem mikrofonu se pouzije `audio-only` zdroj (folder/file scanner se nespousti).
+- Audio snapshoty jdou stejnou analyze/file-actions/artifact pipeline jako obrazove vstupy.
+- Pokud je snapshot slozka neplatna nebo prazdna, start se zablokuje varovanim.
 
 ## Tab: Pekat Tuning
 
@@ -91,7 +107,9 @@ The tab has two sections.
   - `resources/code_modules/scripts_utf8`
   - `resources/code_modules/pmodule`
   - `resources/code_modules/catalog.json`
-- Use `Import base scripts` to import scripts from source folder.
+- Source folder default:
+  - `C:\VS_CODE_PROJECTS\SCRIPTY_PEKAT_CODE`
+- Use `Nahradit skripty ze zdroje` for destructive synchronization (replace, not append).
 - Supported formats:
   - `.txt`
   - `.py`
@@ -101,6 +119,24 @@ Catalog behavior:
 - text files are decoded using UTF-8 first, then cp1250/latin1 fallback
 - canonical UTF-8 copy is created for preview/copy
 - raw source copy is preserved for traceability
+- old catalog entries are deleted on replace sync
+- empty files are skipped (`PYZBAR_BARCODE_READER.txt` is not imported)
+
+Table columns:
+- `Soubor`
+- `Kategorie`
+- `K cemu slouzi`
+- `Co dela`
+- `Klicove context`
+- `Zavislosti`
+
+Metadata source priority:
+1. `Prehled scriptu pro PEKAT CODE modul.xlsx`
+2. `Popis funkcionalit a urceni scriptu.txt`
+3. Generated fallback description
+
+Full synchronized script list:
+- `docs/PEKAT_CODE_SCRIPT_CATALOG.md`
 
 Available actions:
 - `Refresh catalog`
@@ -121,6 +157,9 @@ Wizard flow:
 
 Install source:
 - `resources/pekat_libs/pyzbar/payload`
+
+Default PEKAT path:
+- installer picks the newest `C:\Program Files\PEKAT VISION x.y.z` by numeric version
 
 Backup location:
 - `logs/installer/installer_backups/<timestamp>`
@@ -186,8 +225,8 @@ Quick links to:
 
 ### 1) Enable
 - `Povolit manipulaci se soubory` turns post-processing on/off
-- In `Loop` run mode, this checkbox is disabled and forced OFF
-- Message is shown: `V rezimu Loop neni dostupna manipulace se zdrojovymi soubory.`
+- In `Loop` run mode, this checkbox is disabled and forced OFF (vyjimka: aktivni `Audio / Mikrofon` tab v audio-only rezimu)
+- Message in loop mode (without audio): `V rezimu Loop neni dostupna manipulace se zdrojovymi soubory.`
 - New independent options:
   - `Ukladat JSON Context`
   - `Save PROCESSED Image`

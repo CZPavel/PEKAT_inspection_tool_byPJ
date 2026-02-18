@@ -11,7 +11,7 @@ from ..core.tuning_catalog import TuningCatalog
 from ..types import InstallPlan, ScriptAsset
 
 
-DEFAULT_BASE_SCRIPTS_DIR = Path(r"C:\Users\P_J\Desktop\SCRIPTY_PEKAT_CODE")
+DEFAULT_BASE_SCRIPTS_DIR = Path(r"C:\VS_CODE_PROJECTS\SCRIPTY_PEKAT_CODE")
 
 
 class PyzbarInstallWizard(QtWidgets.QWizard):
@@ -22,29 +22,31 @@ class PyzbarInstallWizard(QtWidgets.QWizard):
         self.install_result = None
         self.executed = False
 
-        self.setWindowTitle("Install pyzbar into PEKAT")
+        self.setWindowTitle("Instalace pyzbar do PEKAT")
         self.setOption(QtWidgets.QWizard.NoBackButtonOnStartPage, True)
+        self.setWizardStyle(QtWidgets.QWizard.ModernStyle)
+        self.setMinimumSize(860, 620)
 
         self._build_pages()
 
     def _build_pages(self) -> None:
         intro_page = QtWidgets.QWizardPage()
-        intro_page.setTitle("Intro + warning")
+        intro_page.setTitle("Uvod + upozorneni")
         intro_layout = QtWidgets.QVBoxLayout(intro_page)
         intro_layout.addWidget(
             QtWidgets.QLabel(
-                "This wizard installs pyzbar files into PEKAT server directory.\n"
-                "It can overwrite files in your PEKAT installation.\n"
-                "Use backup option (recommended)."
+                "Tento pruvodce instaluje soubory knihovny pyzbar do PEKAT server slozky.\n"
+                "Pri instalaci muze dojit k prepsani souboru v PEKAT instalaci.\n"
+                "Doporuceni: nechte zapnute vytvoreni zalohy."
             )
         )
         self.addPage(intro_page)
 
         target_page = QtWidgets.QWizardPage()
-        target_page.setTitle("Select PEKAT path")
+        target_page.setTitle("Vyber PEKAT cesty")
         target_layout = QtWidgets.QFormLayout(target_page)
         self.target_edit = QtWidgets.QLineEdit(str(self.installer.detect_default_pekat_root()))
-        browse_btn = QtWidgets.QPushButton("Browse...")
+        browse_btn = QtWidgets.QPushButton("Vybrat...")
         browse_btn.clicked.connect(self._browse_target)
         target_row = QtWidgets.QHBoxLayout()
         target_row.addWidget(self.target_edit)
@@ -55,7 +57,7 @@ class PyzbarInstallWizard(QtWidgets.QWizard):
         self.addPage(target_page)
 
         precheck_page = QtWidgets.QWizardPage()
-        precheck_page.setTitle("Pre-check")
+        precheck_page.setTitle("Predkontrola")
         precheck_layout = QtWidgets.QVBoxLayout(precheck_page)
         self.precheck_view = QtWidgets.QTextEdit()
         self.precheck_view.setReadOnly(True)
@@ -63,9 +65,9 @@ class PyzbarInstallWizard(QtWidgets.QWizard):
         self.addPage(precheck_page)
 
         dryrun_page = QtWidgets.QWizardPage()
-        dryrun_page.setTitle("Dry-run summary")
+        dryrun_page.setTitle("Dry-run souhrn")
         dryrun_layout = QtWidgets.QVBoxLayout(dryrun_page)
-        self.backup_check = QtWidgets.QCheckBox("Create backup before overwrite")
+        self.backup_check = QtWidgets.QCheckBox("Vytvorit zalohu pred prepisem")
         self.backup_check.setChecked(True)
         self.dryrun_view = QtWidgets.QTextEdit()
         self.dryrun_view.setReadOnly(True)
@@ -74,15 +76,26 @@ class PyzbarInstallWizard(QtWidgets.QWizard):
         self.addPage(dryrun_page)
 
         execute_page = QtWidgets.QWizardPage()
-        execute_page.setTitle("Execute")
+        execute_page.setTitle("Instalace")
         execute_layout = QtWidgets.QVBoxLayout(execute_page)
         self.execute_view = QtWidgets.QTextEdit()
         self.execute_view.setReadOnly(True)
         execute_layout.addWidget(self.execute_view)
         self.addPage(execute_page)
 
+        for button_type in (
+            QtWidgets.QWizard.BackButton,
+            QtWidgets.QWizard.NextButton,
+            QtWidgets.QWizard.FinishButton,
+            QtWidgets.QWizard.CancelButton,
+        ):
+            button = self.button(button_type)
+            if button is not None:
+                button.setMinimumHeight(34)
+                button.setMinimumWidth(120)
+
     def _browse_target(self) -> None:
-        selected = QtWidgets.QFileDialog.getExistingDirectory(self, "Select PEKAT root")
+        selected = QtWidgets.QFileDialog.getExistingDirectory(self, "Vyberte PEKAT root")
         if selected:
             self.target_edit.setText(selected)
 
@@ -94,9 +107,9 @@ class PyzbarInstallWizard(QtWidgets.QWizard):
         if current_id == 1:
             target = self.installer.validate_target(self._target_path())
             if not target.is_valid:
-                self.target_status_label.setText(target.warning or "Invalid PEKAT path.")
+                self.target_status_label.setText(target.warning or "Neplatna PEKAT cesta.")
                 return False
-            self.target_status_label.setText("Path looks valid.")
+            self.target_status_label.setText("Cesta vypada v poradku.")
             return True
         return super().validateCurrentPage()
 
@@ -119,6 +132,12 @@ class PyzbarInstallWizard(QtWidgets.QWizard):
         ]
         writable = self.installer.has_write_access(Path(target.server_path)) if target.is_valid else False
         lines.append(f"Writable server path: {writable}")
+        missing = self.installer.validate_manifest_payload("pyzbar")
+        if missing:
+            lines.append("Chybi soubory v offline payloadu:")
+            lines.extend([f"  - {item}" for item in missing])
+        else:
+            lines.append("Offline payload pyzbar je kompletni.")
         running = self.installer.detect_running_pekat_processes()
         if running:
             lines.append("Running PEKAT-related processes detected:")
@@ -130,7 +149,7 @@ class PyzbarInstallWizard(QtWidgets.QWizard):
     def _load_dryrun(self) -> None:
         self.plan = self.installer.build_plan("pyzbar", self._target_path())
         if not self.plan.target.is_valid:
-            self.dryrun_view.setPlainText(self.plan.target.warning or "Invalid target path.")
+            self.dryrun_view.setPlainText(self.plan.target.warning or "Neplatna cilova cesta.")
             return
         payload = {
             "library": self.plan.library_name,
@@ -150,7 +169,7 @@ class PyzbarInstallWizard(QtWidgets.QWizard):
             return
         self.executed = True
         if not self.plan:
-            self.execute_view.setPlainText("No install plan available.")
+            self.execute_view.setPlainText("Neni dostupny instalacni plan.")
             return
         result = self.installer.execute_plan(self.plan, create_backup=self.backup_check.isChecked())
         self.install_result = result
@@ -180,7 +199,7 @@ class PekatTuningTab(QtWidgets.QWidget):
         scripts_group = QtWidgets.QGroupBox("Code Module Script Catalog")
         scripts_layout = QtWidgets.QVBoxLayout(scripts_group)
         toolbar_layout = QtWidgets.QHBoxLayout()
-        self.import_btn = QtWidgets.QPushButton("Import base scripts")
+        self.import_btn = QtWidgets.QPushButton("Nahradit skripty ze zdroje")
         self.refresh_btn = QtWidgets.QPushButton("Refresh catalog")
         self.copy_btn = QtWidgets.QPushButton("Copy as text")
         self.export_btn = QtWidgets.QPushButton("Export selected...")
@@ -209,7 +228,7 @@ class PekatTuningTab(QtWidgets.QWidget):
         left_layout = QtWidgets.QVBoxLayout(left_widget)
         self.script_table = QtWidgets.QTableWidget(0, 6)
         self.script_table.setHorizontalHeaderLabels(
-            ["Name", "Format", "Category", "Description", "Updated", "Source"]
+            ["Soubor", "Kategorie", "K cemu slouzi", "Co dela", "Klicove context", "Zavislosti"]
         )
         self.script_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self.script_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
@@ -235,11 +254,11 @@ class PekatTuningTab(QtWidgets.QWidget):
         libs_group = QtWidgets.QGroupBox("Library Installer")
         libs_layout = QtWidgets.QVBoxLayout(libs_group)
         info_label = QtWidgets.QLabel(
-            "Install extension libraries into PEKAT server path using guided wizard."
+            "Instalace rozsirujicich knihoven do PEKAT server path pomoci pruvodce."
         )
         libs_layout.addWidget(info_label)
         buttons_layout = QtWidgets.QHBoxLayout()
-        self.install_pyzbar_btn = QtWidgets.QPushButton("Install pyzbar")
+        self.install_pyzbar_btn = QtWidgets.QPushButton("Instalovat pyzbar")
         self.install_placeholder_2_btn = QtWidgets.QPushButton("Install library #2")
         self.install_placeholder_3_btn = QtWidgets.QPushButton("Install library #3")
         self.install_placeholder_4_btn = QtWidgets.QPushButton("Install library #4")
@@ -252,7 +271,7 @@ class PekatTuningTab(QtWidgets.QWidget):
         buttons_layout.addWidget(self.install_placeholder_4_btn)
         buttons_layout.addStretch(1)
         libs_layout.addLayout(buttons_layout)
-        self.install_status_label = QtWidgets.QLabel("Ready.")
+        self.install_status_label = QtWidgets.QLabel("Pripraveno.")
         libs_layout.addWidget(self.install_status_label)
         root_layout.addWidget(libs_group, 1)
 
@@ -291,12 +310,12 @@ class PekatTuningTab(QtWidgets.QWidget):
         self.current_assets = assets
         self.script_table.setRowCount(len(assets))
         for row, asset in enumerate(assets):
-            self._set_item(self.script_table, row, 0, asset.name)
-            self._set_item(self.script_table, row, 1, asset.format)
-            self._set_item(self.script_table, row, 2, asset.category)
-            self._set_item(self.script_table, row, 3, asset.short_description)
-            self._set_item(self.script_table, row, 4, asset.updated_at)
-            self._set_item(self.script_table, row, 5, asset.source_filename)
+            self._set_item(self.script_table, row, 0, asset.source_filename)
+            self._set_item(self.script_table, row, 1, asset.category)
+            self._set_item(self.script_table, row, 2, asset.purpose or asset.short_description)
+            self._set_item(self.script_table, row, 3, asset.what_it_does or asset.short_description)
+            self._set_item(self.script_table, row, 4, asset.context_keys or "-")
+            self._set_item(self.script_table, row, 5, asset.dependencies or "-")
         self.script_table.resizeColumnsToContents()
         if assets:
             self.script_table.selectRow(0)
@@ -322,7 +341,7 @@ class PekatTuningTab(QtWidgets.QWidget):
         text = self.catalog.get_asset_text(asset.id)
         self.script_preview.setPlainText(text)
         self.script_meta_label.setText(
-            f"{asset.name} | format={asset.format} | category={asset.category} | encoding={asset.encoding_source}"
+            f"{asset.source_filename} | category={asset.category} | source={asset.description_source} | encoding={asset.encoding_source}"
         )
 
     def _import_base_scripts(self) -> None:
@@ -337,9 +356,11 @@ class PekatTuningTab(QtWidgets.QWidget):
                 return
             source = Path(folder)
 
-        self.catalog.import_from_folder(source)
+        _catalog, imported, skipped_empty = self.catalog.replace_from_folder(source, skip_empty=True)
         self._refresh_catalog()
-        self.install_status_label.setText(f"Imported scripts from: {source}")
+        self.install_status_label.setText(
+            f"Nahrada hotova: importovano {imported}, preskoceno prazdnych {skipped_empty}, zdroj {source}"
+        )
 
     def _copy_selected_text(self) -> None:
         asset = self._selected_asset()
@@ -373,7 +394,6 @@ class PekatTuningTab(QtWidgets.QWidget):
         wizard = PyzbarInstallWizard(self.installer, parent=self)
         result = wizard.exec()
         if result == QtWidgets.QDialog.Accepted:
-            self.install_status_label.setText("pyzbar installation wizard finished.")
+            self.install_status_label.setText("Pruvodce instalaci pyzbar byl dokoncen.")
         else:
-            self.install_status_label.setText("pyzbar installation wizard canceled.")
-
+            self.install_status_label.setText("Pruvodce instalaci pyzbar byl zrusen.")

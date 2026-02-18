@@ -27,6 +27,8 @@ This document describes the pyzbar installer flow used in `Pekat Tuning`.
    - optional backup before overwrite
    - copy results + error list
 
+Wizard keeps the same visual style as the main application and does not add extra popup flows outside the guided steps.
+
 ## Target path rule
 
 Installer expects:
@@ -34,8 +36,18 @@ Installer expects:
 
 Payload is copied under this target according to manifest item mapping.
 
+Default path behavior:
+- Searches `C:\Program Files` for `PEKAT VISION x.y.z`
+- Uses numeric semantic ordering (`x`, `y`, `z`) to select the newest installed version
+- Falls back to `C:\Program Files\PEKAT VISION` if no versioned folder is found
+
 ## Backups
 
 When backup is enabled:
 - `logs/installer/installer_backups/<library>_<timestamp>/...`
 
+## Offline payload checks
+
+- Installer validates that every manifest `source` path exists under local `payload`.
+- Pre-check reports missing payload files before execute phase.
+- Current offline payload includes pyzbar runtime files, including `libzbar-64.dll`.

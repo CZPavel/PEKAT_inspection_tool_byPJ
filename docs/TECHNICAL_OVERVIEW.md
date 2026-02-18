@@ -41,10 +41,21 @@ The app is split into four layers:
   - `just_watch` (ignores startup files and sends only newly created files)
 - Applies optional post-evaluation file actions (delete/move)
 - In `loop` mode, file actions are force-disabled with warning log
+- In `audio_only` mode:
+  - file scanner is not started
+  - audio producer feeds queue with generated spectrogram PNG snapshots
+  - worker pipeline remains unchanged (analyze + file actions + artifacts)
 - Can save output artifacts after evaluation:
   - JSON context file
   - processed image file
 - If processed saving is enabled, analyze call uses `annotated_image`
+
+### `pektool/core/audio_capture.py`
+- Captures microphone windows using `sounddevice`
+- Converts captured audio to spectrogram image (NumPy FFT + OpenCV colormap)
+- Saves snapshot PNG into configured directory
+- Pushes snapshot paths back to runner via callback
+- Keeps periodic timing (`interval_sec`) and logs non-fatal capture/save errors
 
 ### `pektool/core/file_actions.py`
 - Centralized post-processing logic for source files
@@ -147,6 +158,14 @@ The app is split into four layers:
   - UTF-8 decode first
   - fallback cp1250/latin1
   - canonical UTF-8 copy + raw copy
+- Replace import mode:
+  - `replace_from_folder(...)` clears previous catalog/storage content
+  - imports only current source folder set
+  - skips empty files when `skip_empty=true`
+- Metadata enrichment:
+  - parses XLSX overview (`Soubor`, `Kategorie`, `K cemu slouzi`, `Co dela`, `Klicove context`, `Zavislosti`)
+  - merges supplemental TXT descriptions
+  - generates fallback metadata when source metadata is missing
 - Supports listing/filtering/search and exporting scripts.
 
 ### `pektool/core/library_installer.py`
@@ -157,6 +176,8 @@ The app is split into four layers:
 - Executes copy with optional backup:
   - `logs/installer/installer_backups/<timestamp>`
 - Includes tasklist-based running process hint.
+- Selects default PEKAT root by numeric version sort of `PEKAT VISION x.y.z`.
+- Validates offline payload against manifest (`validate_manifest_payload`) for pre-check reporting.
 
 ## Data Flow
 
@@ -183,10 +204,18 @@ Displayed values:
 1. Script Catalog section:
    - table + search + category filter
    - script preview
+   - columns aligned to source spreadsheet:
+     - `Soubor`, `Kategorie`, `K cemu slouzi`, `Co dela`, `Klicove context`, `Zavislosti`
    - clipboard/export/storage actions
+   - destructive sync button:
+     - `Nahradit skripty ze zdroje`
+     - shows summary `imported / skipped empty / source`
+   - full generated script overview document:
+     - `docs/PEKAT_CODE_SCRIPT_CATALOG.md`
 2. Library Installer section:
    - pyzbar install wizard
    - placeholder controls for future libraries
+   - pre-check includes target validity, write access, running process hint, missing payload files
 
 `Pekat Info` tab is read-only diagnostics and does not modify project state.
 
@@ -226,6 +255,16 @@ Important keys in `configs/config.example.yaml`:
 - `file_actions.save_processed_image`
 - `file_actions.processed_response_type` (`annotated_image`)
 - PM TCP settings under `projects_manager` and `connection`
+- Audio settings under `audio`:
+  - `enabled`
+  - `backend` (`sounddevice`)
+  - `source_mode` (`audio_only`)
+  - `device_name`
+  - `sample_rate_hz`
+  - `window_sec`
+  - `interval_sec`
+  - `snapshot_dir`
+  - `file_prefix`
 
 ## Logging
 

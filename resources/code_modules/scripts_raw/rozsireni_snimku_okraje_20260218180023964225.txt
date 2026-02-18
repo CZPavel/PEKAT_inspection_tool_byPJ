@@ -1,0 +1,141 @@
+# PEKAT Vision - Code module: "obrácený crop" (rozšíření plátna o okraje)
+# Autor: PEKAT Vision code module helper by P.J.
+# Verze: 1.0
+
+import cv2
+import numpy as np
+
+# ==========================
+# UŽIVATELSKÉ NASTAVENÍ
+# --------------------------
+# Vzdálenosti v pixelech (nezáporné hodnoty). Lze libovolně měnit:
+MARGIN_LEFT   = 40   # px
+MARGIN_RIGHT  = 40   # px
+MARGIN_TOP    = 20   # px
+MARGIN_BOTTOM = 20   # px
+
+# Barva výplně okrajů (zadáno v RGB). Implicitně černá (0,0,0).
+# Příklady:
+#   černá: (0, 0, 0)
+#   bílá:  (255, 255, 255)
+#   červená: (255, 0, 0)
+#   zelená:  (0, 255, 0)
+#   modrá:   (0, 0, 255)
+FILL_COLOR_RGB = (0, 0, 0)
+# ==========================
+
+
+def _sanitize_margins(l, r, t, b):
+    """Zajistí nezáporné celočíselné hodnoty okrajů."""
+    def nz(x):
+        try:
+            x = int(x)
+        except Exception:
+            x = 0
+        return max(0, x)
+    return nz(l), nz(r), nz(t), nz(b)
+
+
+def _rgb_to_bgr_tuple(rgb):
+    """(R,G,B) -> (B,G,R)"""
+    r, g, b = rgb
+    return (b, g, r)
+
+
+def _compute_fill_value(image: np.ndarray, fill_rgb: tuple):
+    """
+    Vrátí hodnotu (scalar/tuple) pro cv2.copyMakeBorder podle typu obrazu:
+      - grayscale: scalar (jas z RGB)
+      - RGB:       (B,G,R)
+      - RGBA:      (B,G,R,A=plně neprůhledné, tj. max)
+    Zároveň přizpůsobí rozsah podle dtype (uint8 -> 0..255, float -> 0..1).
+    """
+    # Urči počet kanálů (grayscale/2D vs. 3/4-kanál)
+    if image.ndim == 2:
+        channels = 1
+    else:
+        channels = image.shape[2] if image.ndim == 3 else 1
+
+    # Základní BGR z RGB
+    bgr = _rgb_to_bgr_tuple(fill_rgb)
+
+    # Zjisti cílový rozsah podle dtype
+    if np.issubdtype(image.dtype, np.floating):
+        scale = 1.0 / 255.0  # float obrazy typicky v rozsahu 0..1
+    else:
+        scale = 1.0          # uint8 a spol. v rozsahu 0..255
+
+    if channels == 1:
+        # Přepočet RGB -> jas (vážený průměr, sRGB koeficienty)
+        r, g, b = fill_rgb
+        luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        return float(luminance) * scale
+    elif channels == 3:
+        b, g, r = bgr
+        return (float(b) * scale, float(g) * scale, float(r) * scale)
+    elif channels == 4:
+        # Pokud je alfa kanál, použijeme plnou opacitu (max hodnotu)
+        b, g, r = bgr
+        if np.issubdtype(image.dtype, np.floating):
+            a = 1.0
+            return (float(b) * scale, float(g) * scale, float(r) * scale, a)
+        else:
+            a = 255
+            return (int(b), int(g), int(r), a)
+    else:
+        # Neočekávaný počet kanálů – fallback na grayscale jas
+        r, g, b = fill_rgb
+        luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        return float(luminance) * scale
+
+
+def main(context):
+    """
+    Vstup:
+        context['image'] : NumPy array (grayscale / RGB / RGBA)
+    Výstup:
+        kontextu vrací upravený obraz v context['image']
+    """
+    # 1) Získej obraz z contextu
+    img = context.get('image', None)
+    if img is None:
+        # Není co dělat – bezpečně ukončíme
+        return
+
+    # 2) Očisti a převezmi okraje
+    L, R, T, B = _sanitize_margins(MARGIN_LEFT, MARGIN_RIGHT, MARGIN_TOP, MARGIN_BOTTOM)
+
+    # Pokud nejsou žádné okraje, ponech obraz beze změny
+    if L == 0 and R == 0 and T == 0 and B == 0:
+        return
+
+    # 3) Připrav barvu vyplnění podle typu/dtype obrazu
+    fill_value = _compute_fill_value(img, FILL_COLOR_RGB)
+
+    # 4) Přidej okraje (obrácený crop) – konstantní barvou
+    #    Pozn.: cv2.copyMakeBorder pořadí okrajů je (top, bottom, left, right)
+    try:
+        expanded = cv2.copyMakeBorder(
+            img,
+            top=T,
+            bottom=B,
+            left=L,
+            right=R,
+            borderType=cv2.BORDER_CONSTANT,
+            value=fill_value
+        )
+    except Exception as e:
+        # Pokud by došlo k chybě (např. nesoulad dtype/shape), obraz ponecháme
+        # a můžeme doplnit diagnostiku do contextu.
+        context['label_border_error'] = f'copyMakeBorder failed: {e}'
+        return
+
+    # 5) Zapiš zpět do contextu
+    context['image'] = expanded
+
+    # (volitelně) stručná diagnostika pro UI – např. velikost po rozšíření
+    try:
+        h, w = expanded.shape[:2]
+        context['label_image_size'] = f'Expanded image: {w}x{h}px (L{L},R{R},T{T},B{B})'
+    except Exception:
+        pass

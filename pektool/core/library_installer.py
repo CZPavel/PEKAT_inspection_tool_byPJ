@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from datetime import datetime
@@ -16,6 +17,13 @@ def _timestamp() -> str:
     return datetime.utcnow().strftime("%Y%m%d_%H%M%S")
 
 
+def _version_tuple_from_name(name: str) -> tuple[int, int, int]:
+    match = re.search(r"PEKAT VISION\s+(\d+)\.(\d+)\.(\d+)", name, re.IGNORECASE)
+    if not match:
+        return (-1, -1, -1)
+    return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+
+
 class LibraryInstaller:
     def __init__(self, resources_root: Optional[Path] = None, logs_root: Optional[Path] = None) -> None:
         project_root = resolve_project_root()
@@ -26,11 +34,8 @@ class LibraryInstaller:
     @staticmethod
     def detect_default_pekat_root() -> Path:
         base = Path(r"C:\Program Files")
-        candidates = sorted(
-            [path for path in base.glob("PEKAT VISION*") if path.is_dir()],
-            key=lambda item: item.name.lower(),
-            reverse=True,
-        )
+        candidates = [path for path in base.glob("PEKAT VISION*") if path.is_dir()]
+        candidates.sort(key=lambda item: (_version_tuple_from_name(item.name), item.name.lower()), reverse=True)
         if candidates:
             return candidates[0]
         return Path(r"C:\Program Files\PEKAT VISION 3.19.3")
@@ -60,6 +65,20 @@ class LibraryInstaller:
         if not manifest_path.exists():
             raise FileNotFoundError(f"Install manifest not found: {manifest_path}")
         return json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    def validate_manifest_payload(self, library_name: str) -> List[str]:
+        manifest = self.load_manifest(library_name)
+        items_manifest: List[dict] = list(manifest.get("items") or [])
+        payload_root = self.resources_root / library_name / str(manifest.get("payload_root", "payload"))
+        missing = []
+        for item in items_manifest:
+            rel_src = str(item.get("src", "")).strip()
+            if not rel_src:
+                continue
+            src = payload_root / rel_src
+            if not src.exists():
+                missing.append(str(src))
+        return missing
 
     def build_plan(self, library_name: str, pekat_root: Path) -> InstallPlan:
         manifest = self.load_manifest(library_name)
@@ -204,4 +223,3 @@ class LibraryInstaller:
             backup_path=str(backup_dir) if backup_dir else None,
             errors=errors,
         )
-

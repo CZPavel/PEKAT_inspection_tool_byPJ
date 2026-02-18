@@ -70,6 +70,11 @@ class ScriptAsset:
     created_at: str
     updated_at: str
     empty: bool = False
+    purpose: str = ""
+    what_it_does: str = ""
+    context_keys: str = ""
+    dependencies: str = ""
+    description_source: str = ""
 
 
 @dataclass

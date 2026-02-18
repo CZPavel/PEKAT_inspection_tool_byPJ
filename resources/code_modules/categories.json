@@ -1,15 +1,13 @@
 {
   "schema_version": "1.0",
   "categories": [
-    "general",
-    "trigger",
-    "flow-control",
-    "filter",
-    "image-filter",
-    "result",
-    "save",
-    "barcode",
-    "rendering",
-    "io-control"
+    "Flow control",
+    "Zprac. obrazu",
+    "Detekce",
+    "Ukladani",
+    "Ukladani/overlay",
+    "Mereni",
+    "Geometrie",
+    "IO-Link"
   ]
 }
