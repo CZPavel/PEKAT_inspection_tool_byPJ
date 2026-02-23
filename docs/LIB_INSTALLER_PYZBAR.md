@@ -1,4 +1,4 @@
-# Library Installer - pyzbar (v3.4)
+﻿# Library Installer - pyzbar (v3.6)
 
 This document describes the pyzbar installer flow used in `Pekat Tuning`.
 
@@ -51,3 +51,4 @@ When backup is enabled:
 - Installer validates that every manifest `source` path exists under local `payload`.
 - Pre-check reports missing payload files before execute phase.
 - Current offline payload includes pyzbar runtime files, including `libzbar-64.dll`.
+

@@ -95,6 +95,42 @@ def test_replace_from_folder_deletes_old_assets_and_skips_empty(tmp_path):
     assert "OLD.txt" not in [item.source_filename for item in result.items]
 
 
+def test_manual_override_metadata_is_used_for_pyzbar(tmp_path):
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "PYZBAR_BARCODE_READER.txt").write_text(
+        "import cv2\nimport numpy as np\nimport pyzbar.pyzbar as zbar\n\ndef main(context):\n    pass\n",
+        encoding="utf-8",
+    )
+
+    catalog = TuningCatalog(tmp_path / "resources" / "code_modules")
+    result, imported, skipped_empty = catalog.replace_from_folder(source, skip_empty=True)
+    assert imported == 1
+    assert skipped_empty == 0
+
+    asset = result.items[0]
+    assert asset.source_filename == "PYZBAR_BARCODE_READER.txt"
+    assert asset.category == "Detekce"
+    assert asset.purpose == "Dekodovani carovych a 2D kodu pomoci pyzbar"
+    assert "context['barcode']" in asset.what_it_does
+    assert asset.context_keys == "image, barcode, barcode_debug"
+    assert asset.dependencies == "pyzbar, cv2, numpy"
+    assert asset.description_source == "manual"
+
+
+def test_non_empty_pyzbar_is_imported_when_skip_empty_enabled(tmp_path):
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "PYZBAR_BARCODE_READER.txt").write_text("print('barcode')\n", encoding="utf-8")
+    (source / "EMPTY_SCRIPT.txt").write_text("", encoding="utf-8")
+
+    catalog = TuningCatalog(tmp_path / "resources" / "code_modules")
+    result, imported, skipped_empty = catalog.replace_from_folder(source, skip_empty=True)
+    assert imported == 1
+    assert skipped_empty == 1
+    assert any(item.source_filename == "PYZBAR_BARCODE_READER.txt" for item in result.items)
+
+
 def test_metadata_from_xlsx_is_applied_to_asset(tmp_path):
     source = tmp_path / "src"
     source.mkdir()

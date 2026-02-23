@@ -11,7 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6 import QtWidgets
 
 from pektool.gui.main import MainWindow
-from pektool.gui.tuning_widgets import PekatTuningTab
+from pektool.gui.tuning_widgets import LibraryInstallWizard, PekatTuningTab
 
 
 @pytest.fixture(scope="session")
@@ -31,6 +31,44 @@ def test_pekat_tuning_tab_exists(qapp):
         assert "Pekat Tuning" in names
     finally:
         window.close()
+
+
+def test_pekat_tuning_tab_uses_compact_root_spacing(qapp):
+    tab = PekatTuningTab()
+    try:
+        root_layout = tab.layout()
+        assert isinstance(root_layout, QtWidgets.QVBoxLayout)
+        assert root_layout.spacing() == 6
+        margins = root_layout.contentsMargins()
+        assert (margins.left(), margins.top(), margins.right(), margins.bottom()) == (8, 6, 8, 6)
+    finally:
+        tab.close()
+
+
+def test_library_install_wizard_buttons_have_compact_height(qapp):
+    class DummyInstaller:
+        @staticmethod
+        def detect_default_pekat_root() -> Path:
+            return Path(".")
+
+    wizard = LibraryInstallWizard(
+        installer=DummyInstaller(),
+        library_name="dummy",
+        library_title="Dummy",
+        intro_text="dummy",
+    )
+    try:
+        for button_type in (
+            QtWidgets.QWizard.BackButton,
+            QtWidgets.QWizard.NextButton,
+            QtWidgets.QWizard.FinishButton,
+            QtWidgets.QWizard.CancelButton,
+        ):
+            button = wizard.button(button_type)
+            assert button is not None
+            assert button.minimumHeight() == 30
+    finally:
+        wizard.close()
 
 
 def test_script_table_uses_xlsx_like_columns(qapp):
@@ -145,9 +183,76 @@ def test_replace_action_uses_default_source_and_updates_status(monkeypatch, qapp
         tab.close()
 
 
+def test_pyzbar_row_is_visible_after_refresh(monkeypatch, qapp, tmp_path):
+    source_dir = tmp_path / "SCRIPTY_PEKAT_CODE"
+    source_dir.mkdir()
+    (source_dir / "PYZBAR_BARCODE_READER.txt").write_text("print('x')", encoding="utf-8")
+
+    tab = PekatTuningTab()
+    try:
+        class DummyCatalog:
+            def __init__(self):
+                self.root = Path(".")
+
+            def available_categories(self):
+                return ["Detekce"]
+
+            def list_assets(self, search="", category="all"):
+                from pektool.types import ScriptAsset
+
+                return [
+                    ScriptAsset(
+                        id="pyzbar_1",
+                        name="PYZBAR_BARCODE_READER",
+                        source_filename="PYZBAR_BARCODE_READER.txt",
+                        storage_path_utf8="scripts_utf8/pyzbar_1.txt",
+                        storage_path_raw="scripts_raw/pyzbar_1.txt",
+                        format="txt",
+                        category="Detekce",
+                        tags=["Detekce", "txt"],
+                        short_description="Cteni carovych a 2D kodu pres pyzbar s robustnim predzpracovanim ROI.",
+                        encoding_source="utf-8",
+                        size_bytes=123,
+                        sha256="x",
+                        created_at="now",
+                        updated_at="now",
+                        empty=False,
+                        purpose="Dekodovani carovych a 2D kodu pomoci pyzbar",
+                        what_it_does="Dekoduje pyzbar a zapisuje barcode vystupy do contextu.",
+                        context_keys="image, barcode, barcode_debug",
+                        dependencies="pyzbar, cv2, numpy",
+                        description_source="manual",
+                    )
+                ]
+
+            def replace_from_folder(self, source, skip_empty=True):
+                from pektool.types import ScriptCatalogIndex
+
+                return ScriptCatalogIndex(schema_version="1.0", generated_at="now", items=[]), 1, 0
+
+            def get_asset_text(self, _id):
+                return ""
+
+            def export_asset(self, _id, destination):
+                return destination
+
+        tab.catalog = DummyCatalog()
+        monkeypatch.setattr("pektool.gui.tuning_widgets.DEFAULT_BASE_SCRIPTS_DIR", source_dir)
+        tab._import_base_scripts()
+
+        assert tab.script_table.rowCount() == 1
+        assert tab.script_table.item(0, 0).text() == "PYZBAR_BARCODE_READER.txt"
+        assert tab.script_table.item(0, 1).text() == "Detekce"
+        assert "pyzbar" in tab.script_table.item(0, 5).text()
+    finally:
+        tab.close()
+
+
 def test_placeholder_buttons_disabled(qapp):
     tab = PekatTuningTab()
     try:
+        assert tab.install_onnxruntime_realesrgan_btn.isEnabled() is True
+        assert "ONNX Runtime + Real-ESRGAN" in tab.install_onnxruntime_realesrgan_btn.text()
         assert tab.install_placeholder_2_btn.isEnabled() is False
         assert tab.install_placeholder_3_btn.isEnabled() is False
         assert tab.install_placeholder_4_btn.isEnabled() is False

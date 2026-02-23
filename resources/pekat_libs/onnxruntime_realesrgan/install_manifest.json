@@ -1,0 +1,65 @@
+{
+  "library": "onnxruntime_realesrgan",
+  "version": "1.23.2+real_esrgan_general_x4v3",
+  "payload_root": "payload",
+  "target_subdir": "server",
+  "description": "Offline CPU bundle for ONNX Runtime and Real-ESRGAN-General-x4v3 in PEKAT Code module.",
+  "items": [
+    {
+      "src": "pydeps/onnxruntime",
+      "dst": "onnxruntime"
+    },
+    {
+      "src": "pydeps/onnxruntime-1.23.2.dist-info",
+      "dst": "onnxruntime-1.23.2.dist-info"
+    },
+    {
+      "src": "pydeps/flatbuffers",
+      "dst": "flatbuffers"
+    },
+    {
+      "src": "pydeps/flatbuffers-25.9.23.dist-info",
+      "dst": "flatbuffers-25.9.23.dist-info"
+    },
+    {
+      "src": "pydeps/google",
+      "dst": "google"
+    },
+    {
+      "src": "pydeps/protobuf-6.33.0.dist-info",
+      "dst": "protobuf-6.33.0.dist-info"
+    },
+    {
+      "src": "pydeps/coloredlogs",
+      "dst": "coloredlogs"
+    },
+    {
+      "src": "pydeps/coloredlogs-15.0.1.dist-info",
+      "dst": "coloredlogs-15.0.1.dist-info"
+    },
+    {
+      "src": "pydeps/humanfriendly",
+      "dst": "humanfriendly"
+    },
+    {
+      "src": "pydeps/humanfriendly-10.0.dist-info",
+      "dst": "humanfriendly-10.0.dist-info"
+    },
+    {
+      "src": "models/real_esrgan_general_x4v3.onnx",
+      "dst": "models/real_esrgan_general_x4v3.onnx"
+    },
+    {
+      "src": "models/real_esrgan_general_x4v3.data",
+      "dst": "models/real_esrgan_general_x4v3.data"
+    },
+    {
+      "src": "models/metadata.yaml",
+      "dst": "models/metadata.yaml"
+    },
+    {
+      "src": "models/tool-versions.yaml",
+      "dst": "models/tool-versions.yaml"
+    }
+  ]
+}

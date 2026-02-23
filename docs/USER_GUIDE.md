@@ -1,4 +1,4 @@
-# PEKAT Inspection Tool - User Guide (v3.4)
+﻿# PEKAT Inspection Tool - User Guide (v3.6)
 
 This guide describes GUI controls and runtime indicators.
 
@@ -78,24 +78,41 @@ Notes:
 - `Manipulace se soubory`: post-evaluation delete/move rules
 - `Last Context JSON`: full JSON of last processed image context (or last error payload)
 - `Pekat Tuning`: script catalog and PEKAT library installer
-- `Audio / Mikrofon`: periodicke audio snapshoty jako spektrogram PNG
+- `Sound camera`: zvukova kamera (Payload/Lissajous/Classic) s preview oknem
 - `Pekat Info`: local PEKAT port overview, port scan, and useful links
 - `Log`: runtime log stream
 
-## Tab: Audio / Mikrofon
+## Tab: Sound camera
 
-- `Povolit mikrofon`: zapina periodicke audio snimani
-- `Mikrofon`: vyber vstupniho zarizeni (`Default system microphone` nebo konkretni vstup)
-- `Snapshot slozka`: cilova slozka pro generovane spektrogramy PNG
-- `Interval`: perioda snimku (default `2.0 s`)
-- `Delka snimku`: delka audio okna pro spektrogram (default `1.0 s`)
-- `Sample rate`: vzorkovaci frekvence (default `16000`)
+Spolecne prvky:
+- `Povolit Sound camera`
+- `Pristup`: `Payload | Lissajous | Classic`
+- `Zdroj`: `Loopback | Microphone | Sine`
+- `Backend policy`: `Auto | Prefer pyaudiowpatch | Pouze sounddevice`
+- `Rezim odesilani`: `Save+Send | Send-only`
+- `Sample rate`, `Delka snimku`, `Interval`
+- `Sine frequency` (aktivni jen pro `Sine`)
+- `Snapshot slozka` + `Prefix souboru` (povinne pouze v `Save+Send`)
 
-Chovani:
-- Audio bezi pouze pri `Start sending` a zastavi se pri `Stop sending`.
-- Pri zapnutem mikrofonu se pouzije `audio-only` zdroj (folder/file scanner se nespousti).
-- Audio snapshoty jdou stejnou analyze/file-actions/artifact pipeline jako obrazove vstupy.
-- Pokud je snapshot slozka neplatna nebo prazdna, start se zablokuje varovanim.
+Approach-specific pages:
+- `Payload`: `frame_seconds`, `overlap`, `style_mode`, `y_repeat`, `variant`, `preview_resize`
+- `Lissajous`: `tau`, `width`, `height`, `accum`, `point_size_step`, `point_render_style`, `value_mode`, `rotation`
+- `Classic`: `preset`, `W`, `H`, `colormap`, `gamma`, `detail_mode`, `detail_sigma`, `detail_gain`, `detail_p`, `freq_interp`
+
+Preview:
+- `Start preview`: spusti nezavisly preview i bez `Start sending`
+- `Stop preview`
+- `Ukazat preview`: otevre separaâ€‹tni okno s live obrazem, metadaty a snapshot tlacitkem
+- Pri aktivnim `Start sending` je nezavisly preview zastaven a okno bere data z runner callbacku (bez druheho capture streamu)
+
+Windows audio capture fallback:
+- primarne `pyaudiowpatch` WASAPI loopback
+- fallback `sounddevice` WASAPI
+- fallback Stereo Mix / loopback-like input
+
+Send mode behavior:
+- `Save+Send`: frame se ulozi jako PNG a odesila se z ulozeneho souboru
+- `Send-only`: frame se odesila primo in-memory, zdrojove move/delete akce jsou vypnute, artifacty (JSON/processed) mohou zustat zapnute
 
 ## Tab: Pekat Tuning
 
@@ -120,7 +137,7 @@ Catalog behavior:
 - canonical UTF-8 copy is created for preview/copy
 - raw source copy is preserved for traceability
 - old catalog entries are deleted on replace sync
-- empty files are skipped (`PYZBAR_BARCODE_READER.txt` is not imported)
+- empty files are skipped
 
 Table columns:
 - `Soubor`
@@ -133,7 +150,8 @@ Table columns:
 Metadata source priority:
 1. `Prehled scriptu pro PEKAT CODE modul.xlsx`
 2. `Popis funkcionalit a urceni scriptu.txt`
-3. Generated fallback description
+3. Manual override metadata (selected scripts, e.g. `PYZBAR_BARCODE_READER.txt`)
+4. Generated fallback description
 
 Full synchronized script list:
 - `docs/PEKAT_CODE_SCRIPT_CATALOG.md`
@@ -146,7 +164,7 @@ Available actions:
 
 ### 2) Library Installer
 - `Install pyzbar` starts guided installation wizard.
-- Placeholder buttons are reserved for future libraries.
+- `Install ONNX Runtime + Real-ESRGAN` starts guided fallback wizard for offline CPU upscaling bundle.
 
 Wizard flow:
 1. warning page
@@ -157,6 +175,16 @@ Wizard flow:
 
 Install source:
 - `resources/pekat_libs/pyzbar/payload`
+- `resources/pekat_libs/onnxruntime_realesrgan/payload`
+
+Related docs:
+- `docs/LIB_INSTALLER_PYZBAR.md`
+- `docs/LIB_INSTALLER_ONNXRUNTIME_REALESRGAN.md`
+- `docs/PEKAT_AI_UPSCALING_PLAN.md`
+
+Important:
+- Preferred production deployment for ONNX Runtime is outside Program Files (`C:\ProgramData\PEKAT\pydeps`) and loaded via `sys.path` in Code module.
+- Wizard copy to `...\\server` is fallback strategy.
 
 Default PEKAT path:
 - installer picks the newest `C:\Program Files\PEKAT VISION x.y.z` by numeric version
@@ -225,7 +253,7 @@ Quick links to:
 
 ### 1) Enable
 - `Povolit manipulaci se soubory` turns post-processing on/off
-- In `Loop` run mode, this checkbox is disabled and forced OFF (vyjimka: aktivni `Audio / Mikrofon` tab v audio-only rezimu)
+- In `Loop` run mode, this checkbox is disabled and forced OFF (vyjimka: aktivni `Sound camera`)
 - Message in loop mode (without audio): `V rezimu Loop neni dostupna manipulace se zdrojovymi soubory.`
 - New independent options:
   - `Ukladat JSON Context`
@@ -279,3 +307,4 @@ Rules:
 - If reconnect loops appear, verify project is running on expected host/port.
 - For PM control issues, verify PM TCP is enabled and project path is valid.
 - `data` is internal project argument; it is used inside PEKAT flow and is not usually returned in REST response.
+

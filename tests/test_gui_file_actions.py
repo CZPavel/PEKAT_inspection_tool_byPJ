@@ -26,6 +26,11 @@ def qapp():
 def test_gui_file_actions_disabled_in_loop(qapp):
     window = MainWindow()
     try:
+        window.audio_enable_check.setChecked(False)
+        for idx in range(window.audio_send_mode_combo.count()):
+            if window.audio_send_mode_combo.itemData(idx) == "save_send":
+                window.audio_send_mode_combo.setCurrentIndex(idx)
+                break
         for idx in range(window.run_mode_combo.count()):
             if window.run_mode_combo.itemData(idx) == "loop":
                 window.run_mode_combo.setCurrentIndex(idx)
@@ -37,9 +42,28 @@ def test_gui_file_actions_disabled_in_loop(qapp):
         window.close()
 
 
+def test_file_actions_tab_uses_scroll_root_and_compact_form_spacing(qapp):
+    window = MainWindow()
+    try:
+        scroll_areas = window.file_actions_tab.findChildren(QtWidgets.QScrollArea)
+        assert scroll_areas
+        assert window.file_actions_top_form.verticalSpacing() <= 4
+        ok_form = window.file_ok_group.layout()
+        assert isinstance(ok_form, QtWidgets.QFormLayout)
+        assert ok_form.verticalSpacing() <= 4
+        assert isinstance(window.file_actions_sections_layout, QtWidgets.QHBoxLayout)
+    finally:
+        window.close()
+
+
 def test_gui_section_enablement_by_mode(qapp):
     window = MainWindow()
     try:
+        window.audio_enable_check.setChecked(False)
+        for idx in range(window.audio_send_mode_combo.count()):
+            if window.audio_send_mode_combo.itemData(idx) == "save_send":
+                window.audio_send_mode_combo.setCurrentIndex(idx)
+                break
         for idx in range(window.run_mode_combo.count()):
             if window.run_mode_combo.itemData(idx) == "initial_then_watch":
                 window.run_mode_combo.setCurrentIndex(idx)

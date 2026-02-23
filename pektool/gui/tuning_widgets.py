@@ -14,15 +14,25 @@ from ..types import InstallPlan, ScriptAsset
 DEFAULT_BASE_SCRIPTS_DIR = Path(r"C:\VS_CODE_PROJECTS\SCRIPTY_PEKAT_CODE")
 
 
-class PyzbarInstallWizard(QtWidgets.QWizard):
-    def __init__(self, installer: LibraryInstaller, parent=None) -> None:
+class LibraryInstallWizard(QtWidgets.QWizard):
+    def __init__(
+        self,
+        installer: LibraryInstaller,
+        library_name: str,
+        library_title: str,
+        intro_text: str,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self.installer = installer
+        self.library_name = library_name
+        self.library_title = library_title
+        self.intro_text = intro_text
         self.plan: Optional[InstallPlan] = None
         self.install_result = None
         self.executed = False
 
-        self.setWindowTitle("Instalace pyzbar do PEKAT")
+        self.setWindowTitle(f"Instalace {self.library_title} do PEKAT")
         self.setOption(QtWidgets.QWizard.NoBackButtonOnStartPage, True)
         self.setWizardStyle(QtWidgets.QWizard.ModernStyle)
         self.setMinimumSize(860, 620)
@@ -33,13 +43,7 @@ class PyzbarInstallWizard(QtWidgets.QWizard):
         intro_page = QtWidgets.QWizardPage()
         intro_page.setTitle("Uvod + upozorneni")
         intro_layout = QtWidgets.QVBoxLayout(intro_page)
-        intro_layout.addWidget(
-            QtWidgets.QLabel(
-                "Tento pruvodce instaluje soubory knihovny pyzbar do PEKAT server slozky.\n"
-                "Pri instalaci muze dojit k prepsani souboru v PEKAT instalaci.\n"
-                "Doporuceni: nechte zapnute vytvoreni zalohy."
-            )
-        )
+        intro_layout.addWidget(QtWidgets.QLabel(self.intro_text))
         self.addPage(intro_page)
 
         target_page = QtWidgets.QWizardPage()
@@ -91,7 +95,7 @@ class PyzbarInstallWizard(QtWidgets.QWizard):
         ):
             button = self.button(button_type)
             if button is not None:
-                button.setMinimumHeight(34)
+                button.setMinimumHeight(30)
                 button.setMinimumWidth(120)
 
     def _browse_target(self) -> None:
@@ -132,12 +136,12 @@ class PyzbarInstallWizard(QtWidgets.QWizard):
         ]
         writable = self.installer.has_write_access(Path(target.server_path)) if target.is_valid else False
         lines.append(f"Writable server path: {writable}")
-        missing = self.installer.validate_manifest_payload("pyzbar")
+        missing = self.installer.validate_manifest_payload(self.library_name)
         if missing:
             lines.append("Chybi soubory v offline payloadu:")
             lines.extend([f"  - {item}" for item in missing])
         else:
-            lines.append("Offline payload pyzbar je kompletni.")
+            lines.append(f"Offline payload {self.library_title} je kompletni.")
         running = self.installer.detect_running_pekat_processes()
         if running:
             lines.append("Running PEKAT-related processes detected:")
@@ -147,7 +151,7 @@ class PyzbarInstallWizard(QtWidgets.QWizard):
         self.precheck_view.setPlainText("\n".join(lines))
 
     def _load_dryrun(self) -> None:
-        self.plan = self.installer.build_plan("pyzbar", self._target_path())
+        self.plan = self.installer.build_plan(self.library_name, self._target_path())
         if not self.plan.target.is_valid:
             self.dryrun_view.setPlainText(self.plan.target.warning or "Neplatna cilova cesta.")
             return
@@ -183,6 +187,37 @@ class PyzbarInstallWizard(QtWidgets.QWizard):
         self.execute_view.setPlainText(json.dumps(payload, indent=2, ensure_ascii=False))
 
 
+class PyzbarInstallWizard(LibraryInstallWizard):
+    def __init__(self, installer: LibraryInstaller, parent=None) -> None:
+        super().__init__(
+            installer=installer,
+            library_name="pyzbar",
+            library_title="pyzbar",
+            intro_text=(
+                "Tento pruvodce instaluje soubory knihovny pyzbar do PEKAT server slozky.\n"
+                "Pri instalaci muze dojit k prepsani souboru v PEKAT instalaci.\n"
+                "Doporuceni: nechte zapnute vytvoreni zalohy."
+            ),
+            parent=parent,
+        )
+
+
+class OnnxRuntimeRealesrganInstallWizard(LibraryInstallWizard):
+    def __init__(self, installer: LibraryInstaller, parent=None) -> None:
+        super().__init__(
+            installer=installer,
+            library_name="onnxruntime_realesrgan",
+            library_title="ONNX Runtime + Real-ESRGAN",
+            intro_text=(
+                "Tento pruvodce instaluje offline bundle ONNX Runtime + Real-ESRGAN do PEKAT server slozky.\n"
+                "Doporucena varianta je nasazeni mimo Program Files (C:\\ProgramData\\PEKAT\\pydeps) "
+                "pres pip --target.\n"
+                "Tento wizard je fallback varianta pro prime kopirovani do server path."
+            ),
+            parent=parent,
+        )
+
+
 class PekatTuningTab(QtWidgets.QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -195,10 +230,16 @@ class PekatTuningTab(QtWidgets.QWidget):
 
     def _build_ui(self) -> None:
         root_layout = QtWidgets.QVBoxLayout(self)
+        root_layout.setSpacing(6)
+        root_layout.setContentsMargins(8, 6, 8, 6)
 
         scripts_group = QtWidgets.QGroupBox("Code Module Script Catalog")
         scripts_layout = QtWidgets.QVBoxLayout(scripts_group)
+        scripts_layout.setSpacing(6)
+        scripts_layout.setContentsMargins(6, 6, 6, 6)
         toolbar_layout = QtWidgets.QHBoxLayout()
+        toolbar_layout.setSpacing(6)
+        toolbar_layout.setContentsMargins(0, 0, 0, 0)
         self.import_btn = QtWidgets.QPushButton("Nahradit skripty ze zdroje")
         self.refresh_btn = QtWidgets.QPushButton("Refresh catalog")
         self.copy_btn = QtWidgets.QPushButton("Copy as text")
@@ -213,6 +254,8 @@ class PekatTuningTab(QtWidgets.QWidget):
         scripts_layout.addLayout(toolbar_layout)
 
         filter_layout = QtWidgets.QHBoxLayout()
+        filter_layout.setSpacing(6)
+        filter_layout.setContentsMargins(0, 0, 0, 0)
         self.search_edit = QtWidgets.QLineEdit()
         self.search_edit.setPlaceholderText("Search by name, tag, description...")
         self.category_combo = QtWidgets.QComboBox()
@@ -226,6 +269,8 @@ class PekatTuningTab(QtWidgets.QWidget):
         splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
         left_widget = QtWidgets.QWidget()
         left_layout = QtWidgets.QVBoxLayout(left_widget)
+        left_layout.setSpacing(6)
+        left_layout.setContentsMargins(0, 0, 0, 0)
         self.script_table = QtWidgets.QTableWidget(0, 6)
         self.script_table.setHorizontalHeaderLabels(
             ["Soubor", "Kategorie", "K cemu slouzi", "Co dela", "Klicove context", "Zavislosti"]
@@ -238,6 +283,8 @@ class PekatTuningTab(QtWidgets.QWidget):
 
         right_widget = QtWidgets.QWidget()
         right_layout = QtWidgets.QVBoxLayout(right_widget)
+        right_layout.setSpacing(6)
+        right_layout.setContentsMargins(0, 0, 0, 0)
         self.script_meta_label = QtWidgets.QLabel("Select script to show preview.")
         self.script_preview = QtWidgets.QTextEdit()
         self.script_preview.setReadOnly(True)
@@ -253,12 +300,19 @@ class PekatTuningTab(QtWidgets.QWidget):
 
         libs_group = QtWidgets.QGroupBox("Library Installer")
         libs_layout = QtWidgets.QVBoxLayout(libs_group)
+        libs_layout.setSpacing(6)
+        libs_layout.setContentsMargins(6, 6, 6, 6)
         info_label = QtWidgets.QLabel(
             "Instalace rozsirujicich knihoven do PEKAT server path pomoci pruvodce."
         )
         libs_layout.addWidget(info_label)
         buttons_layout = QtWidgets.QHBoxLayout()
+        buttons_layout.setSpacing(6)
+        buttons_layout.setContentsMargins(0, 0, 0, 0)
         self.install_pyzbar_btn = QtWidgets.QPushButton("Instalovat pyzbar")
+        self.install_onnxruntime_realesrgan_btn = QtWidgets.QPushButton(
+            "Install ONNX Runtime + Real-ESRGAN"
+        )
         self.install_placeholder_2_btn = QtWidgets.QPushButton("Install library #2")
         self.install_placeholder_3_btn = QtWidgets.QPushButton("Install library #3")
         self.install_placeholder_4_btn = QtWidgets.QPushButton("Install library #4")
@@ -266,6 +320,7 @@ class PekatTuningTab(QtWidgets.QWidget):
         self.install_placeholder_3_btn.setEnabled(False)
         self.install_placeholder_4_btn.setEnabled(False)
         buttons_layout.addWidget(self.install_pyzbar_btn)
+        buttons_layout.addWidget(self.install_onnxruntime_realesrgan_btn)
         buttons_layout.addWidget(self.install_placeholder_2_btn)
         buttons_layout.addWidget(self.install_placeholder_3_btn)
         buttons_layout.addWidget(self.install_placeholder_4_btn)
@@ -284,6 +339,9 @@ class PekatTuningTab(QtWidgets.QWidget):
         self.category_combo.currentIndexChanged.connect(self._refresh_catalog)
         self.script_table.itemSelectionChanged.connect(self._on_script_selection_changed)
         self.install_pyzbar_btn.clicked.connect(self._run_pyzbar_install_wizard)
+        self.install_onnxruntime_realesrgan_btn.clicked.connect(
+            self._run_onnxruntime_realesrgan_install_wizard
+        )
 
     @staticmethod
     def _set_item(table: QtWidgets.QTableWidget, row: int, col: int, text: str) -> None:
@@ -397,3 +455,15 @@ class PekatTuningTab(QtWidgets.QWidget):
             self.install_status_label.setText("Pruvodce instalaci pyzbar byl dokoncen.")
         else:
             self.install_status_label.setText("Pruvodce instalaci pyzbar byl zrusen.")
+
+    def _run_onnxruntime_realesrgan_install_wizard(self) -> None:
+        wizard = OnnxRuntimeRealesrganInstallWizard(self.installer, parent=self)
+        result = wizard.exec()
+        if result == QtWidgets.QDialog.Accepted:
+            self.install_status_label.setText(
+                "Pruvodce instalaci ONNX Runtime + Real-ESRGAN byl dokoncen."
+            )
+        else:
+            self.install_status_label.setText(
+                "Pruvodce instalaci ONNX Runtime + Real-ESRGAN byl zrusen."
+            )

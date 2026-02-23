@@ -1,4 +1,4 @@
-# PEKAT Inspection Tool (v3.4)
+﻿# PEKAT Inspection Tool (v3.6)
 
 Python app (CLI + GUI) for sending images to PEKAT VISION 3.19.x through SDK or REST API.
 
@@ -46,6 +46,7 @@ Note:
 - file manipulation is automatically disabled in `run_mode=loop`
 - `UNKNOWN/ERROR` evaluations are treated as `NOK` for file manipulation routing
 - in `run_mode=loop`, JSON context / processed image saving can stay enabled
+- in `Sound camera + Send-only`, source move/delete actions are disabled automatically
 
 ## Run
 ### CLI
@@ -83,7 +84,46 @@ GUI shows:
 - NOK/OK counters
 - full JSON context of last processed image in `Last Context JSON` tab
 
-## Pekat Tuning tab (v3.4)
+## Sound camera (v3.6)
+GUI tab `Sound camera` replaces legacy `Audio / Mikrofon`.
+
+Supported approaches:
+- `Payload`
+- `Lissajous`
+- `Classic`
+
+Classic styles:
+- `CLASSIC` (linear STFT spectrogram)
+- `FUSE7` (specialized color fusion view from lab reference)
+- `FUSE4_base` (base hue+edge composition)
+
+Classic Y-axis mode:
+- `Linear | Log | Mel` (applies only to `CLASSIC` style)
+- FUSE styles keep reference mel logic without axis remap
+
+Supported sources:
+- `Loopback` (Windows output capture)
+- `Microphone`
+- `Sine` (test generator)
+
+Send modes:
+- `Save+Send`: save PNG snapshot and send file path
+- `Send-only`: send in-memory frame directly (SDK has temporary PNG fallback if needed)
+- both modes send exactly one selected style image per frame
+
+Preview:
+- standalone preview window can run without `Start sending`
+- during active sending, preview switches to runner frame callback (single capture stream)
+
+Windows capture fallback chain:
+- `pyaudiowpatch` WASAPI loopback (preferred)
+- `sounddevice` WASAPI loopback
+- Stereo Mix / loopback-like input fallback
+
+Detailni nastaveni a profily:
+- `docs/SOUND_CAMERA.md`
+
+## Pekat Tuning tab (v3.6)
 GUI tab `Pekat Tuning` provides two sections:
 
 1) Code Module Script Catalog
@@ -108,8 +148,9 @@ GUI tab `Pekat Tuning` provides two sections:
 - metadata sources:
   - XLSX overview in source folder
   - supplemental TXT description in source folder
+  - manual metadata override for selected scripts (e.g. `PYZBAR_BARCODE_READER.txt`)
   - generated fallback when metadata is missing
-- empty script files are skipped during sync (`PYZBAR_BARCODE_READER.txt` is intentionally excluded)
+- empty script files are skipped during sync
 - synchronized catalog list is documented in `docs/PEKAT_CODE_SCRIPT_CATALOG.md`
 
 2) Library Installer
@@ -125,7 +166,7 @@ Bundled pyzbar payload is stored in:
 - `resources/pekat_libs/pyzbar/payload`
 - manifest: `resources/pekat_libs/pyzbar/install_manifest.json`
 
-## Pekat Info tab (v3.4)
+## Pekat Info tab (v3.6)
 GUI tab `Pekat Info` provides:
 - common PEKAT port overview with short description and clickable links
 - status check for common ports:
@@ -176,12 +217,25 @@ pyinstaller --clean --noconfirm pyinstaller.spec
 ```
 
 Build output:
-- `dist/PEKAT_Inspection_tool_by_PJ/pektool-gui.exe`
-- `dist/PEKAT_Inspection_tool_by_PJ/pektool.exe`
+- `dist/PEKAT_Inspection_tool_by_PJ_V03_6/pektool-gui.exe`
+- `dist/PEKAT_Inspection_tool_by_PJ_V03_6/pektool.exe`
 
 `resources/` directory is bundled into PyInstaller output for runtime catalog and installer assets.
+
+## Release 3.6 artefakty a návaznosti
+- Release souhrn:
+  - `docs/RELEASE_3_6.md`
+- Uživatelský návod:
+  - `docs/USER_GUIDE.md`
+- Technický přehled:
+  - `docs/TECHNICAL_OVERVIEW.md`
+- Sound camera reference:
+  - `docs/SOUND_CAMERA.md`
+- Mapa návazností modulů:
+  - `docs/DEPENDENCY_LINKS.md`
+
 ## Forward backlog
 - Follow-up plan is tracked in `docs/NEXT_STEPS.md` for next development iteration.
-- Current priorities: user acceptance test of v3.4 and script description cleanup.
-- Candidate future feature: `Sound camera` integration concept.
+- Current priorities: user acceptance test of v3.6 and script description cleanup.
+
 

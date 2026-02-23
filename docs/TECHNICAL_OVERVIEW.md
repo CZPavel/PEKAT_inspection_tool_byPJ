@@ -1,6 +1,9 @@
-# PEKAT Inspection Tool - Technical Overview (v3.4)
+﻿# PEKAT Inspection Tool - Technical Overview (v3.6)
 
 This document describes architecture and runtime behavior of the tool.
+
+Dependency map for release packaging and runtime module flow:
+- `docs/DEPENDENCY_LINKS.md`
 
 ## Architecture
 
@@ -41,21 +44,38 @@ The app is split into four layers:
   - `just_watch` (ignores startup files and sends only newly created files)
 - Applies optional post-evaluation file actions (delete/move)
 - In `loop` mode, file actions are force-disabled with warning log
-- In `audio_only` mode:
+- In `sound camera` mode (`audio.enabled=true`):
   - file scanner is not started
-  - audio producer feeds queue with generated spectrogram PNG snapshots
+  - sound camera engine feeds queue with generated frames (`Path` in `save_send`, `numpy` in `send_only`)
   - worker pipeline remains unchanged (analyze + file actions + artifacts)
+  - source move/delete actions are auto-disabled in `send_only`
+- Supports preview callback hook for GUI live preview without second capture stream
 - Can save output artifacts after evaluation:
   - JSON context file
   - processed image file
 - If processed saving is enabled, analyze call uses `annotated_image`
 
-### `pektool/core/audio_capture.py`
-- Captures microphone windows using `sounddevice`
-- Converts captured audio to spectrogram image (NumPy FFT + OpenCV colormap)
-- Saves snapshot PNG into configured directory
-- Pushes snapshot paths back to runner via callback
-- Keeps periodic timing (`interval_sec`) and logs non-fatal capture/save errors
+### `pektool/core/sound_camera/*`
+- `audio_sources.py`:
+  - `Loopback | Microphone | Sine` source implementations
+  - Windows fallback chain:
+    - `pyaudiowpatch` WASAPI loopback
+    - `sounddevice` WASAPI loopback
+    - Stereo Mix / loopback-like input
+- `engine.py`:
+  - captures audio windows and renders selected approach
+  - handles `save_send` and `send_only`
+  - on render error emits explicit error frame (prevents stale preview image)
+- `render_payload.py`, `render_lissajous.py`, `render_classic.py`, `render_fuse7.py`:
+  - three rendering approaches with per-approach parameters
+  - `lissajous` supports `tau=both` side-by-side composition (`2W`)
+  - `classic` exposes dependency capability check (`classic_dependencies_status`) and validates STFT params (`hop_ms <= win_ms`, positive limits)
+  - `classic` style routing:
+    - `style=classic` -> `render_classic.py` with `axis_mode=linear|log|mel`
+    - `style=fuse7|fuse4_base` -> `render_fuse7.py` with reference mel fusion pipeline
+- `preview_controller.py`:
+  - standalone preview lifecycle independent from sender
+  - supports runtime `reconfigure` (`stop -> start`) with queue reset
 
 ### `pektool/core/file_actions.py`
 - Centralized post-processing logic for source files
@@ -165,6 +185,8 @@ The app is split into four layers:
 - Metadata enrichment:
   - parses XLSX overview (`Soubor`, `Kategorie`, `K cemu slouzi`, `Co dela`, `Klicove context`, `Zavislosti`)
   - merges supplemental TXT descriptions
+  - applies manual metadata overrides for specific scripts (for example pyzbar barcode reader)
+  - metadata priority: `xlsx -> txt -> manual -> generated`
   - generates fallback metadata when source metadata is missing
 - Supports listing/filtering/search and exporting scripts.
 
@@ -198,7 +220,7 @@ Displayed values:
 - `OK` and `NOK` counters
 - Full JSON of last processed image in dedicated `Last Context JSON` tab
 
-## v3.4 Pekat Tuning + Pekat Info GUI tabs
+## v3.6 Pekat Tuning + Pekat Info GUI tabs
 
 `Pekat Tuning` tab:
 1. Script Catalog section:
@@ -214,7 +236,7 @@ Displayed values:
      - `docs/PEKAT_CODE_SCRIPT_CATALOG.md`
 2. Library Installer section:
    - pyzbar install wizard
-   - placeholder controls for future libraries
+   - ONNX Runtime + Real-ESRGAN install wizard (fallback path copy)
    - pre-check includes target validity, write access, running process hint, missing payload files
 
 `Pekat Info` tab is read-only diagnostics and does not modify project state.
@@ -255,16 +277,28 @@ Important keys in `configs/config.example.yaml`:
 - `file_actions.save_processed_image`
 - `file_actions.processed_response_type` (`annotated_image`)
 - PM TCP settings under `projects_manager` and `connection`
-- Audio settings under `audio`:
+- Sound camera settings under `audio`:
   - `enabled`
-  - `backend` (`sounddevice`)
-  - `source_mode` (`audio_only`)
+  - `approach` (`payload | lissajous | classic`)
+  - `classic.style` (`classic | fuse7 | fuse4_base`)
+  - `classic.axis_mode` (`linear | log | mel`, used only when `style=classic`)
+  - `source` (`loopback | microphone | sine`)
+  - `backend_policy` (`auto | prefer_pyaudiowpatch | sounddevice_only`)
+  - `send_mode` (`save_send | send_only`)
   - `device_name`
   - `sample_rate_hz`
   - `window_sec`
+  - `fps` (alias, mapped to `interval_sec = 1/fps`)
   - `interval_sec`
   - `snapshot_dir`
   - `file_prefix`
+  - nested sections: `payload`, `lissajous`, `classic`
+  - timing validation is approach-dependent:
+    - `payload/lissajous`: `interval_sec >= window_sec`
+    - `classic`: overlap allowed (`interval_sec < window_sec`)
+
+GUI runtime guard:
+- before `Start preview` / `Start sending`, `classic` mode checks `scipy` availability and blocks action with install hint when missing.
 
 ## Logging
 
@@ -288,3 +322,4 @@ Important keys in `configs/config.example.yaml`:
 - `data` is internal PEKAT argument and usually is not returned by REST response
 - PM HTTP (`7000`) provides list/status, not start/stop
 - PM TCP control works only if TCP server is enabled in Projects Manager
+

@@ -51,6 +51,19 @@ def test_pekat_info_tab_exists(qapp):
         window.close()
 
 
+def test_pekat_info_network_cards_use_compact_spacing(qapp):
+    window = MainWindow()
+    try:
+        assert window.network_cards_layout.horizontalSpacing() == 10
+        assert window.network_cards_layout.verticalSpacing() == 6
+        policy = window.network_cards_scroll.parentWidget().sizePolicy()
+        assert policy.verticalPolicy() == QtWidgets.QSizePolicy.Expanding
+        scroll_areas = window.pekat_info_tab.findChildren(QtWidgets.QScrollArea)
+        assert scroll_areas
+    finally:
+        window.close()
+
+
 def test_pekat_info_common_scan_populates(monkeypatch, qapp):
     window = MainWindow()
     try:

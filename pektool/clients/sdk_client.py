@@ -1,8 +1,10 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from pathlib import Path
+import tempfile
 from typing import Any, Dict, Optional, Tuple
 
+from ..io.image_loader import encode_png
 from .base import BaseClient
 
 
@@ -59,12 +61,55 @@ class SDKClient(BaseClient):
         response_type: str,
         context_in_body: bool,
     ) -> Tuple[Optional[Dict[str, Any]], Optional[bytes]]:
+        # Primary path: pass object directly (Path/bytes/numpy) to SDK instance.
+        try:
+            result = self._call_analyze(
+                image=image,
+                data=data,
+                timeout_sec=timeout_sec,
+                response_type=response_type,
+                context_in_body=context_in_body,
+            )
+            return self._extract_context_and_image(result)
+        except Exception:
+            if not BaseClient.is_numpy(image):
+                raise
+
+        # Send-only fallback for SDK runtimes that do not accept numpy image directly.
+        tmp_path: Optional[Path] = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as handle:
+                tmp_path = Path(handle.name)
+                handle.write(encode_png(image))  # type: ignore[arg-type]
+            result = self._call_analyze(
+                image=tmp_path,
+                data=data,
+                timeout_sec=timeout_sec,
+                response_type=response_type,
+                context_in_body=context_in_body,
+            )
+            return self._extract_context_and_image(result)
+        finally:
+            if tmp_path is not None:
+                try:
+                    tmp_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+    def _call_analyze(
+        self,
+        *,
+        image: object,
+        data: str,
+        timeout_sec: int,
+        response_type: str,
+        context_in_body: bool,
+    ) -> object:
         kwargs = dict(response_type=response_type, data=data, timeout=timeout_sec)
         try:
-            result = self._instance.analyze(image, **kwargs, context_in_body=context_in_body)
+            return self._instance.analyze(image, **kwargs, context_in_body=context_in_body)
         except TypeError:
-            result = self._instance.analyze(image, **kwargs)
-        return self._extract_context_and_image(result)
+            return self._instance.analyze(image, **kwargs)
 
     def _extract_context_and_image(
         self, result: object
@@ -94,3 +139,4 @@ class SDKClient(BaseClient):
             return context, None
 
         return None, None
+

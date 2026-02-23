@@ -1,0 +1,238 @@
+import cv2
+import numpy as np
+import time
+from datetime import datetime
+
+# ============================================================
+# KONFIGURACE
+# ============================================================
+
+CFG = {
+    # ROI (obdélník v procentech obrazu) – začni full, pak zúžíš
+    "roi": {"x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0},
+
+    # Preprocessing
+    "upscale": 3.0,
+    "use_clahe": True,
+    "try_otsu": True,
+    "try_adaptive": True,
+    "try_invert": True,
+
+    # Debug
+    "print_every_frame": True,     # tisknout každý snímek
+    "print_context_keys": False,   # vytiskne i keys(context) (může být dlouhé)
+    "draw_overlay": True,          # kreslit výsledek do obrazu
+    "overlay_max_chars": 60,
+
+    # Volitelně: ukládat preprocess obrázky na disk (pro ladění)
+    "save_debug_images": False,
+    "debug_dir": r"C:\temp\pekat_barcode_debug",  # vytvoř ručně nebo přepni save_debug_images=False
+}
+
+# ============================================================
+# HELPERY
+# ============================================================
+
+def _p(msg):
+    """Bezpečný print do PEKAT konzole + flush."""
+    try:
+        print(msg, flush=True)
+    except Exception:
+        pass
+
+def _to_gray_u8(img):
+    if img.ndim == 3 and img.shape[2] == 3:
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = img.copy()
+
+    if gray.dtype != np.uint8:
+        gray = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    return gray
+
+def _get_roi(gray, roi_cfg):
+    H, W = gray.shape[:2]
+    x0 = int(roi_cfg["x"] * W)
+    y0 = int(roi_cfg["y"] * H)
+    x1 = int((roi_cfg["x"] + roi_cfg["w"]) * W)
+    y1 = int((roi_cfg["y"] + roi_cfg["h"]) * H)
+
+    x0 = max(0, min(W - 1, x0))
+    y0 = max(0, min(H - 1, y0))
+    x1 = max(1, min(W, x1))
+    y1 = max(1, min(H, y1))
+    if x1 <= x0 + 1: x1 = min(W, x0 + 2)
+    if y1 <= y0 + 1: y1 = min(H, y0 + 2)
+
+    return gray[y0:y1, x0:x1], (x0, y0, x1 - x0, y1 - y0)
+
+def _variants(gray_roi):
+    v = []
+
+    # upscale
+    scale = float(CFG["upscale"])
+    if scale and scale != 1.0:
+        base = cv2.resize(gray_roi, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+    else:
+        base = gray_roi
+
+    v.append(("gray_up", base))
+
+    # CLAHE
+    if CFG["use_clahe"]:
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        base2 = clahe.apply(base)
+        v.append(("clahe", base2))
+    else:
+        base2 = base
+
+    # blur (pomáhá prahu)
+    blur = cv2.GaussianBlur(base2, (3, 3), 0)
+    v.append(("blur", blur))
+
+    # sharpen (unsharp)
+    sharp = cv2.addWeighted(base2, 1.6, blur, -0.6, 0)
+    v.append(("sharp", sharp))
+
+    if CFG["try_otsu"]:
+        _, otsu = cv2.threshold(sharp, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        v.append(("otsu", otsu))
+        if CFG["try_invert"]:
+            v.append(("otsu_inv", 255 - otsu))
+
+    if CFG["try_adaptive"]:
+        adap = cv2.adaptiveThreshold(
+            sharp, 255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            51, 7
+        )
+        v.append(("adaptive", adap))
+        if CFG["try_invert"]:
+            v.append(("adaptive_inv", 255 - adap))
+
+    return v
+
+def _draw_overlay(img, lines, origin=(20, 30)):
+    x, y = origin
+    for i, line in enumerate(lines):
+        yy = y + i * 28
+        cv2.putText(img, line[:CFG["overlay_max_chars"]], (x, yy),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def main(context):
+    t0 = time.time()
+
+    # Připrav výstupní struktury (ať je vždy v contextu něco vidět)
+    context["barcode"] = {
+        "ok": False,
+        "text": "",
+        "type": "",
+        "method": "",
+        "roi": None,
+        "error": "",
+        "count": 0
+    }
+    context["barcode_debug"] = {
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "tried": [],
+        "import_ok": False,
+        "decode_exception": "",
+        "notes": []
+    }
+
+    if CFG["print_context_keys"]:
+        _p(f"[PEKAT][barcode] context keys: {list(context.keys())}")
+
+    # Import pyzbar explicitně, ať je vidět že se používá
+    try:
+        import pyzbar.pyzbar as zbar
+        context["barcode_debug"]["import_ok"] = True
+    except Exception as e:
+        msg = f"IMPORT pyzbar selhal: {e}"
+        context["barcode"]["error"] = msg
+        context["barcode_debug"]["notes"].append(msg)
+        _p("[PEKAT][barcode] " + msg)
+        if CFG["draw_overlay"]:
+            _draw_overlay(context["image"], ["pyzbar IMPORT FAIL", str(e)])
+        return
+
+    img = context["image"]
+    gray = _to_gray_u8(img)
+
+    roi_img, roi_box = _get_roi(gray, CFG["roi"])
+    context["barcode"]["roi"] = {"x": roi_box[0], "y": roi_box[1], "w": roi_box[2], "h": roi_box[3]}
+
+    # Zkus dekódovat postupně na variantách
+    best = None
+    for name, pre in _variants(roi_img):
+        context["barcode_debug"]["tried"].append(name)
+
+        try:
+            res = zbar.decode(pre)
+        except Exception as e:
+            # Tady typicky narazíš na chybějící zbar.dll (ale říkáš, že funkční je)
+            context["barcode_debug"]["decode_exception"] = str(e)
+            context["barcode"]["error"] = f"decode() exception on {name}: {e}"
+            _p(f"[PEKAT][barcode] decode exception on {name}: {e}")
+            break
+
+        if not res:
+            continue
+
+        b = res[0]
+        text = b.data.decode("utf-8", errors="replace")
+        btype = getattr(b, "type", "")
+        best = (text, btype, name)
+
+        # Ulož a skonči na první úspěch (můžeš změnit na výběr nejlepšího)
+        break
+
+    if best:
+        text, btype, method = best
+        context["barcode"]["ok"] = True
+        context["barcode"]["text"] = text
+        context["barcode"]["type"] = btype
+        context["barcode"]["method"] = method
+        context["barcode"]["count"] = 1
+
+        _p(f"[PEKAT][barcode] OK type={btype} method={method} text='{text}' roi={context['barcode']['roi']}")
+    else:
+        _p(f"[PEKAT][barcode] NO RESULT. Tried={context['barcode_debug']['tried']} roi={context['barcode']['roi']} err={context['barcode']['error']}")
+
+    # Overlay + ROI rectangle do obrazu
+    if CFG["draw_overlay"]:
+        x, y, w, h = roi_box
+        cv2.rectangle(context["image"], (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+        if context["barcode"]["ok"]:
+            _draw_overlay(context["image"], [
+                "BARCODE OK",
+                f"type: {context['barcode']['type']}",
+                f"method: {context['barcode']['method']}",
+                f"text: {context['barcode']['text']}",
+            ])
+        else:
+            _draw_overlay(context["image"], [
+                "BARCODE NG",
+                f"tried: {len(context['barcode_debug']['tried'])}",
+                f"err: {context['barcode']['error'][:60]}",
+            ])
+
+    # Volitelně ulož debug snímek
+    if CFG["save_debug_images"]:
+        try:
+            import os
+            os.makedirs(CFG["debug_dir"], exist_ok=True)
+            fn = datetime.now().strftime("frame_%Y%m%d_%H%M%S_%f.png")
+            cv2.imwrite(os.path.join(CFG["debug_dir"], fn), context["image"])
+        except Exception as e:
+            _p(f"[PEKAT][barcode] save_debug_images failed: {e}")
+
+    dt_ms = int((time.time() - t0) * 1000)
+    if CFG["print_every_frame"]:
+        _p(f"[PEKAT][barcode] done in {dt_ms} ms")

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import queue
@@ -6,17 +6,20 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set
 
+import numpy as np
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from ..config import AppConfig
-from .connection import ConnectionManager
+from ..types import AnalyzeResult, ArtifactSaveResult, FileActionResult, ImageTask, NormalizedEvaluation
 from .artifact_saver import save_artifacts
+from .connection import ConnectionManager
 from .context_eval import normalize_context_evaluation
 from .file_actions import apply_file_action
+from .sound_camera.engine import SoundCameraEngine
+from .sound_camera.models import SoundCameraFrame
 from ..io.file_scanner import FileScanner
-from ..types import AnalyzeResult, ArtifactSaveResult, FileActionResult, ImageTask, NormalizedEvaluation
 
 
 class Runner:
@@ -30,30 +33,69 @@ class Runner:
         self.stop_event = threading.Event()
         self.scanner_thread: Optional[threading.Thread] = None
         self.worker_thread: Optional[threading.Thread] = None
+        self.sound_thread: Optional[threading.Thread] = None
+        self.sound_engine: Optional[SoundCameraEngine] = None
         self.status = "stopped"
         self._jsonl_path = Path(config.logging.directory) / config.logging.jsonl_filename
+        self._preview_callback_lock = threading.Lock()
+        self._preview_callback: Optional[Callable[[SoundCameraFrame], None]] = None
         Path(config.logging.directory).mkdir(parents=True, exist_ok=True)
 
+    def set_preview_callback(self, callback: Optional[Callable[[SoundCameraFrame], None]]) -> None:
+        with self._preview_callback_lock:
+            self._preview_callback = callback
+
     def start(self) -> None:
-        if self.scanner_thread and self.scanner_thread.is_alive():
+        if (
+            (self.scanner_thread and self.scanner_thread.is_alive())
+            or (self.sound_thread and self.sound_thread.is_alive())
+            or (self.worker_thread and self.worker_thread.is_alive())
+        ):
             return
-        if self.config.behavior.run_mode == "loop" and self.config.file_actions.enabled:
+
+        if (
+            not self.config.audio.enabled
+            and self.config.behavior.run_mode == "loop"
+            and self.config.file_actions.enabled
+        ):
             self.logger.warning(
                 "File manipulation is disabled in loop mode because it would be non-deterministic."
             )
             self.config.file_actions.enabled = False
+
         self.stop_event.clear()
         self.status = "starting"
-        self.scanner_thread = threading.Thread(target=self._scanner_loop, daemon=True)
+        use_sound_camera = bool(self.config.audio.enabled)
+
+        if use_sound_camera:
+            self.sound_engine = SoundCameraEngine(
+                config=self.config,
+                logger=self.logger,
+                stop_event=self.stop_event,
+                on_frame=self._on_sound_camera_frame,
+            )
+        else:
+            self.sound_engine = None
+
         self.worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
-        self.scanner_thread.start()
         self.worker_thread.start()
+
+        if use_sound_camera:
+            assert self.sound_engine is not None
+            self.sound_thread = threading.Thread(target=self.sound_engine.run, daemon=True)
+            self.sound_thread.start()
+            self.scanner_thread = None
+        else:
+            self.sound_thread = None
+            self.scanner_thread = threading.Thread(target=self._scanner_loop, daemon=True)
+            self.scanner_thread.start()
+
         self.status = "running"
 
     def stop(self) -> None:
         self.stop_event.set()
         timeout = self.config.behavior.graceful_stop_timeout_sec
-        for thread in [self.scanner_thread, self.worker_thread]:
+        for thread in [self.scanner_thread, self.sound_thread, self.worker_thread]:
             if thread:
                 thread.join(timeout=timeout)
         self.status = "stopped"
@@ -65,14 +107,12 @@ class Runner:
         return self.connection.total_sent
 
     def _scanner_loop(self) -> None:
-        # Producer side: build tasks according to selected run mode.
         input_cfg = self.config.input
         behavior = self.config.behavior
 
         if input_cfg.source_type == "files":
             files = [Path(p) for p in input_cfg.files]
             if behavior.run_mode == "just_watch":
-                # "Just watch" has no meaning for fixed file list mode.
                 self.logger.warning("Run mode 'just_watch' is not compatible with source_type=files; using once.")
             self._enqueue_files(files, loop=behavior.run_mode == "loop")
             if behavior.run_mode != "loop":
@@ -89,20 +129,16 @@ class Runner:
         )
 
         if behavior.run_mode == "loop":
-            # Freeze current stable file set and keep replaying it.
             snapshot = self._build_snapshot(scanner)
             while not self.stop_event.is_set():
                 self._enqueue_files(snapshot, loop=False)
                 time.sleep(self.config.input.poll_interval_sec)
         elif behavior.run_mode == "once":
-            # Process existing stable files only once.
             self._run_once(scanner)
             self._finalize_once()
         elif behavior.run_mode == "just_watch":
-            # Ignore files present at startup and process only newly appearing ones.
             self._run_just_watch(scanner, folder)
         else:
-            # Process current files once, then keep watching for new files.
             self._run_initial_then_watch(scanner)
 
     def _build_snapshot(self, scanner: FileScanner) -> List[Path]:
@@ -172,7 +208,6 @@ class Runner:
             scanner.wait(self.config.input.poll_interval_sec)
 
     def _collect_existing_paths(self, folder: Path) -> Set[Path]:
-        # Collect startup snapshot so "just_watch" ignores pre-existing files.
         include_subfolders = self.config.input.include_subfolders
         extensions = {ext.lower() for ext in self.config.input.extensions}
         if not folder.exists():
@@ -184,11 +219,20 @@ class Runner:
                 paths.add(path)
         return paths
 
+    def _enqueue_task(self, task: ImageTask) -> None:
+        while not self.stop_event.is_set():
+            try:
+                self.queue.put(task, timeout=0.5)
+                return
+            except queue.Full:
+                continue
+
     def _enqueue_files(self, files: List[Path], loop: bool) -> None:
         if not files:
             if loop:
                 time.sleep(self.config.input.poll_interval_sec)
             return
+
         while not self.stop_event.is_set():
             for path in files:
                 if self.stop_event.is_set():
@@ -197,16 +241,51 @@ class Runner:
                     self.logger.warning("File missing: %s", path)
                     continue
                 data_value = self._build_data_value(path)
-                task = ImageTask(path=path, data_value=data_value)
-                while not self.stop_event.is_set():
-                    try:
-                        self.queue.put(task, timeout=0.5)
-                        break
-                    except queue.Full:
-                        continue
+                task = ImageTask(
+                    path=path,
+                    data_value=data_value,
+                    image_input=path,
+                    source_kind="file",
+                    label_stem=path.stem,
+                    source_path=path,
+                )
+                self._enqueue_task(task)
             if not loop:
                 break
             time.sleep(self.config.input.poll_interval_sec)
+
+    def _on_sound_camera_frame(self, frame: SoundCameraFrame) -> None:
+        if self.stop_event.is_set():
+            return
+
+        send_mode = str(getattr(self.config.audio, "send_mode", "save_send")).strip().lower()
+        snapshot_dir = Path(str(getattr(self.config.audio, "snapshot_dir", "sound_camera_snapshots"))).expanduser()
+        if send_mode == "save_send" and frame.saved_path is not None:
+            path = frame.saved_path
+            image_input: object = path
+            source_path = frame.saved_path
+        else:
+            path = snapshot_dir / f"{frame.label_stem}.png"
+            image_input = np.asarray(frame.image_bgr)
+            source_path = None
+
+        task = ImageTask(
+            path=path,
+            data_value=self._build_data_value(path),
+            image_input=image_input,
+            source_kind="sound_camera",
+            label_stem=frame.label_stem,
+            source_path=source_path,
+        )
+        self._enqueue_task(task)
+
+        with self._preview_callback_lock:
+            callback = self._preview_callback
+        if callback is not None:
+            try:
+                callback(frame)
+            except Exception as exc:
+                self.logger.debug("Preview callback failed: %s", exc)
 
     def _finalize_once(self) -> None:
         if not self.stop_event.is_set():
@@ -214,7 +293,6 @@ class Runner:
             self.stop_event.set()
 
     def _worker_loop(self) -> None:
-        # Consumer side: process queued tasks sequentially to avoid PEKAT overload.
         while not self.stop_event.is_set():
             if not self.connection.is_connected():
                 time.sleep(1.0)
@@ -253,9 +331,10 @@ class Runner:
                 context=context,
                 error=None,
             )
-            file_action_result = self._apply_file_action(task.path, evaluation)
+            file_action_result = self._apply_file_action(task, evaluation)
+            source_for_artifacts = task.source_path or task.path
             artifact_save_result = self._save_artifacts(
-                path=task.path,
+                source_path=source_for_artifacts,
                 context=context,
                 image_bytes=image_bytes,
                 evaluation=evaluation,
@@ -296,17 +375,29 @@ class Runner:
 
     def _apply_file_action(
         self,
-        path: Path,
+        task: ImageTask,
         evaluation: NormalizedEvaluation,
     ) -> FileActionResult:
-        try:
-            result = apply_file_action(path=path, evaluation=evaluation, cfg=self.config, now=datetime.now())
-        except Exception as exc:  # pragma: no cover - safety net around plugin-like call
-            self.logger.warning("File action failed unexpectedly for %s: %s", path, exc)
+        send_mode = str(getattr(self.config.audio, "send_mode", "save_send")).strip().lower()
+        if task.source_kind == "sound_camera" and send_mode == "send_only":
             return FileActionResult(
                 applied=False,
                 operation="none",
-                source_path=str(path),
+                source_path=str(task.path),
+                target_path=None,
+                reason="send-only-source-file-actions-disabled",
+                eval_status=evaluation.eval_status,
+            )
+
+        source_path = task.source_path or task.path
+        try:
+            result = apply_file_action(path=source_path, evaluation=evaluation, cfg=self.config, now=datetime.now())
+        except Exception as exc:  # pragma: no cover
+            self.logger.warning("File action failed unexpectedly for %s: %s", source_path, exc)
+            return FileActionResult(
+                applied=False,
+                operation="none",
+                source_path=str(source_path),
                 target_path=None,
                 reason=f"runner-file-action-exception:{exc}",
                 eval_status=evaluation.eval_status,
@@ -319,31 +410,27 @@ class Runner:
                 elif result.operation == "delete":
                     self.logger.info("File deleted: %s", result.source_path)
             elif result.reason and result.reason != "file-actions-disabled":
-                self.logger.warning(
-                    "File action not applied for %s: %s",
-                    result.source_path,
-                    result.reason,
-                )
+                self.logger.warning("File action not applied for %s: %s", result.source_path, result.reason)
         return result
 
     def _save_artifacts(
         self,
-        path: Path,
+        source_path: Path,
         context: Optional[Dict[str, Any]],
         image_bytes: Optional[bytes],
         evaluation: NormalizedEvaluation,
     ) -> ArtifactSaveResult:
         try:
             result = save_artifacts(
-                source_path=path,
+                source_path=source_path,
                 context=context,
                 image_bytes=image_bytes,
                 evaluation=evaluation,
                 cfg=self.config,
                 now=datetime.now(),
             )
-        except Exception as exc:  # pragma: no cover - defensive path
-            self.logger.warning("Artifact save failed unexpectedly for %s: %s", path, exc)
+        except Exception as exc:  # pragma: no cover
+            self.logger.warning("Artifact save failed unexpectedly for %s: %s", source_path, exc)
             return ArtifactSaveResult(
                 json_saved=False,
                 json_path=None,
@@ -354,7 +441,7 @@ class Runner:
 
         if self.config.file_actions.save_json_context or self.config.file_actions.save_processed_image:
             if result.reason:
-                self.logger.warning("Artifact save warning for %s: %s", path, result.reason)
+                self.logger.warning("Artifact save warning for %s: %s", source_path, result.reason)
             else:
                 if result.json_saved:
                     self.logger.info("JSON context saved: %s", result.json_path)
@@ -403,6 +490,7 @@ class Runner:
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
             "filename": str(task.path),
             "data": task.data_value,
+            "source_kind": task.source_kind,
             "status": result.status,
             "latency_ms": result.latency_ms,
             "ok_nok": result.ok_nok,
@@ -441,6 +529,7 @@ class Runner:
     def _should_requeue(self, exc: Exception) -> bool:
         try:
             import requests  # type: ignore
+
             if isinstance(exc, requests.HTTPError):
                 status = exc.response.status_code if exc.response is not None else 0
                 return status >= 500 or status == 0
@@ -466,8 +555,9 @@ class Runner:
             response_type = cfg.response_type
             if self.config.file_actions.save_processed_image:
                 response_type = self.config.file_actions.processed_response_type
+            image_obj = task.image_input if task.image_input is not None else task.path
             return client.analyze(
-                task.path,
+                image_obj,
                 data=task.data_value,
                 timeout_sec=cfg.timeout_sec,
                 response_type=response_type,
@@ -475,4 +565,3 @@ class Runner:
             )
 
         return _run()
-

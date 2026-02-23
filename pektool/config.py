@@ -101,6 +101,169 @@ class PekatConfig(BaseModel):
         return values
 
 
+class AudioConfig(BaseModel):
+    enabled: bool = False
+    # Legacy compatibility fields kept for older config/gui payloads.
+    backend: Literal["sounddevice"] = "sounddevice"
+    source_mode: Literal["audio_only"] = "audio_only"
+
+    # Unified Sound camera runtime controls.
+    approach: Literal["payload", "lissajous", "classic"] = "payload"
+    source: Literal["loopback", "microphone", "sine"] = "loopback"
+    backend_policy: Literal["auto", "prefer_pyaudiowpatch", "sounddevice_only"] = "auto"
+    send_mode: Literal["save_send", "send_only"] = "save_send"
+    device_name: str = ""
+    sample_rate_hz: int = 16000
+    channels: int = 1
+    window_sec: float = 1.0
+    interval_sec: float = 2.0
+    snapshot_dir: str = "sound_camera_snapshots"
+    file_prefix: str = "sound"
+    sine_freq_hz: float = 440.0
+
+    class PayloadConfig(BaseModel):
+        frame_seconds: float = 1.0
+        overlap_percent: float = 50.0
+        style_mode: Literal[
+            "raw_stream",
+            "bitplane_transpose",
+            "delta_bitplane_transpose",
+            "stack3",
+        ] = "stack3"
+        y_repeat: Literal[1, 2, 4] = 4
+        variant_mode: str = "none"
+        preview_resize_mode: Literal["pixel", "smooth"] = "pixel"
+        overlay_grid: bool = True
+        overlay_time_ticks: bool = True
+        overlay_stack_bounds: bool = True
+        overlay_legend: bool = True
+
+    class LissajousConfig(BaseModel):
+        tau: Literal[1, 5, 10, 20, 50, "both"] = 5
+        width: int = 512
+        height: int = 512
+        accum: Literal["none", "max", "sum", "avg"] = "none"
+        point_size_step: int = 1
+        point_render_style: Literal["classic", "sharp_stamp", "square_stamp"] = "classic"
+        value_mode: Literal["radial", "flat"] = "radial"
+        rotation: Literal["none", "plus45", "minus45"] = "none"
+
+    class ClassicConfig(BaseModel):
+        preset: Literal["none", "classic_fhd", "classic_impulse"] = "none"
+        style: Literal["classic", "fuse7", "fuse4_base"] = "classic"
+        axis_mode: Literal["linear", "log", "mel"] = "linear"
+        scale_mode: Literal["top_db", "percentile"] = "top_db"
+        p_lo: float = 1.0
+        p_hi: float = 99.0
+        n_mels_hue: int = 128
+        n_mels_layers: int = 64
+        fuse7_profile: Literal["default", "ref_compat"] = "ref_compat"
+        norm_p: float = 99.5
+        freq_green_bias: float = 0.15
+        edge_base_alpha: float = 0.25
+        flux_gain: float = 110.0
+        edge_gain: float = 70.0
+        width: int = 1024
+        height: int = 768
+        n_fft: int = 4096
+        win_ms: float = 25.0
+        hop_ms: float = 1.0
+        top_db: float = 80.0
+        fmax: float = 24000.0
+        colormap: Literal["none", "gray", "turbo", "viridis", "magma"] = "gray"
+        gamma: float = 1.0
+        detail_mode: Literal["off", "highpass", "edgesobel"] = "off"
+        detail_sigma: float = 1.2
+        detail_gain: float = 70.0
+        detail_p: float = 99.5
+        freq_interp: Literal["auto", "area", "linear", "nearest"] = "auto"
+
+        @root_validator(skip_on_failure=True)
+        def _validate_ranges(cls, values: dict) -> dict:
+            p_lo = float(values.get("p_lo", 1.0))
+            p_hi = float(values.get("p_hi", 99.0))
+            if p_lo < 0.0 or p_lo >= 100.0:
+                raise ValueError("classic.p_lo must be in range [0, 100)")
+            if p_hi <= 0.0 or p_hi > 100.0:
+                raise ValueError("classic.p_hi must be in range (0, 100]")
+            if p_lo >= p_hi:
+                raise ValueError("classic.p_lo must be lower than classic.p_hi")
+
+            n_mels_hue = int(values.get("n_mels_hue", 128))
+            n_mels_layers = int(values.get("n_mels_layers", 64))
+            if n_mels_hue < 8 or n_mels_hue > 512:
+                raise ValueError("classic.n_mels_hue must be in range 8..512")
+            if n_mels_layers < 8 or n_mels_layers > 512:
+                raise ValueError("classic.n_mels_layers must be in range 8..512")
+
+            norm_p = float(values.get("norm_p", 99.5))
+            detail_p = float(values.get("detail_p", 99.5))
+            if norm_p <= 0.0 or norm_p > 100.0:
+                raise ValueError("classic.norm_p must be in range (0, 100]")
+            if detail_p <= 0.0 or detail_p > 100.0:
+                raise ValueError("classic.detail_p must be in range (0, 100]")
+
+            edge_base_alpha = float(values.get("edge_base_alpha", 0.25))
+            if edge_base_alpha < 0.0 or edge_base_alpha > 1.0:
+                raise ValueError("classic.edge_base_alpha must be in range [0, 1]")
+            return values
+
+    payload: PayloadConfig = Field(default_factory=PayloadConfig)
+    lissajous: LissajousConfig = Field(default_factory=LissajousConfig)
+    classic: ClassicConfig = Field(default_factory=ClassicConfig)
+
+    @validator("sample_rate_hz")
+    def _validate_sample_rate(cls, value: int) -> int:
+        if value < 8000 or value > 192000:
+            raise ValueError("sample_rate_hz must be in range 8000..192000")
+        return value
+
+    @validator("channels")
+    def _validate_channels(cls, value: int) -> int:
+        if value < 1 or value > 2:
+            raise ValueError("channels must be in range 1..2")
+        return value
+
+    @root_validator(skip_on_failure=True)
+    def _validate_timing(cls, values: dict) -> dict:
+        interval_sec = values.get("interval_sec")
+        window_sec = values.get("window_sec")
+        approach = str(values.get("approach", "payload")).strip().lower()
+        if isinstance(interval_sec, (float, int)) and isinstance(window_sec, (float, int)):
+            # Classic mode supports overlap between adjacent windows.
+            if approach != "classic" and float(interval_sec) < float(window_sec):
+                raise ValueError("interval_sec must be >= window_sec (except approach=classic)")
+        return values
+
+    @root_validator(pre=True)
+    def _migrate_legacy_fields(cls, values: dict) -> dict:
+        if not isinstance(values, dict):
+            return values
+        if "interval_sec" not in values and "fps" in values:
+            try:
+                fps = float(values.get("fps", 0.0))
+                if fps > 0.0:
+                    values["interval_sec"] = 1.0 / fps
+            except Exception:
+                pass
+        # Legacy default behavior was microphone-oriented audio-only flow.
+        if "source" not in values:
+            source_mode = str(values.get("source_mode", "")).strip().lower()
+            if source_mode == "audio_only":
+                values["source"] = "microphone"
+
+        if "snapshot_dir" not in values and "audio_snapshot_dir" in values:
+            values["snapshot_dir"] = values.get("audio_snapshot_dir")
+
+        if "device_name" not in values and "audio_device_name" in values:
+            values["device_name"] = values.get("audio_device_name")
+
+        # Keep old defaults for existing persisted files when explicit values are missing.
+        if "file_prefix" not in values and str(values.get("source_mode", "")).strip().lower() == "audio_only":
+            values["file_prefix"] = values.get("file_prefix", "mic")
+        return values
+
+
 class RestConfig(BaseModel):
     api_key: str = ""
     api_key_location: Literal["query", "header"] = "query"
@@ -149,6 +312,7 @@ class AppConfig(BaseModel):
     behavior: BehaviorConfig = Field(default_factory=BehaviorConfig)
     file_actions: FileActionsConfig = Field(default_factory=FileActionsConfig)
     pekat: PekatConfig = Field(default_factory=PekatConfig)
+    audio: AudioConfig = Field(default_factory=AudioConfig)
     rest: RestConfig = Field(default_factory=RestConfig)
     projects_manager: ProjectsManagerConfig = Field(default_factory=ProjectsManagerConfig)
     connection: ConnectionConfig = Field(default_factory=ConnectionConfig)

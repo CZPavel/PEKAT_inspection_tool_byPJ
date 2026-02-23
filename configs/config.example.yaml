@@ -63,6 +63,73 @@ pekat:
   result_field: null
   health_ping_sec: 5.0
 
+audio:
+  enabled: false
+  backend: sounddevice                 # legacy kompatibilita
+  source_mode: audio_only              # legacy kompatibilita
+  approach: payload                    # payload | lissajous | classic
+  source: loopback                     # loopback | microphone | sine
+  backend_policy: auto                 # auto | prefer_pyaudiowpatch | sounddevice_only
+  send_mode: save_send                 # save_send | send_only
+  device_name: default
+  sample_rate_hz: 16000
+  channels: 2
+  window_sec: 1.0
+  fps: 0.5                           # alias pro interval_sec (interval = 1/fps)
+  interval_sec: 2.0                  # zachovano pro kompatibilitu
+  snapshot_dir: "sound_camera_snapshots"
+  file_prefix: "sound"
+  sine_freq_hz: 440.0
+  payload:
+    frame_seconds: 1.0
+    overlap_percent: 50.0
+    style_mode: stack3                 # raw_stream | bitplane_transpose | delta_bitplane_transpose | stack3
+    y_repeat: 4
+    variant_mode: none
+    preview_resize_mode: pixel         # pixel | smooth
+    overlay_grid: true
+    overlay_time_ticks: true
+    overlay_stack_bounds: true
+    overlay_legend: true
+  lissajous:
+    tau: 5                            # 1 | 5 | 10 | 20 | 50 | both
+    width: 512
+    height: 512
+    accum: "none"                      # none | max | sum | avg
+    point_size_step: 1
+    point_render_style: classic        # classic | sharp_stamp | square_stamp
+    value_mode: radial                 # radial | flat
+    rotation: none                     # none | plus45 | minus45
+  classic:
+    preset: "none"                     # none | classic_fhd | classic_impulse
+    style: classic                     # classic | fuse7 | fuse4_base
+    axis_mode: linear                  # linear | log | mel (pouze pro style=classic)
+    scale_mode: top_db                 # top_db | percentile
+    p_lo: 1.0
+    p_hi: 99.0
+    n_mels_hue: 128
+    n_mels_layers: 64
+    fuse7_profile: ref_compat          # default | ref_compat
+    norm_p: 99.5
+    freq_green_bias: 0.15
+    edge_base_alpha: 0.25
+    flux_gain: 110.0
+    edge_gain: 70.0
+    width: 1024
+    height: 768
+    n_fft: 4096
+    win_ms: 25.0
+    hop_ms: 1.0
+    top_db: 80.0
+    fmax: 24000.0
+    colormap: gray                     # none | gray | turbo | viridis | magma
+    gamma: 1.0
+    detail_mode: "off"                 # off | highpass | edgesobel
+    detail_sigma: 1.2
+    detail_gain: 70.0
+    detail_p: 99.5
+    freq_interp: auto                  # auto | area | linear | nearest
+
 rest:
   api_key: ""
   api_key_location: query

@@ -9,6 +9,10 @@ from typing import Any, Dict, List, Literal, Optional
 class ImageTask:
     path: Path
     data_value: str
+    image_input: Optional[object] = None
+    source_kind: Literal["file", "sound_camera"] = "file"
+    label_stem: Optional[str] = None
+    source_path: Optional[Path] = None
 
 
 @dataclass

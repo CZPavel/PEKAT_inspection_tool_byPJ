@@ -2,6 +2,45 @@
 
 All notable changes to this project are documented in this file.
 
+## [3.6.0] - 2026-02-23
+
+### Added
+- Sound camera integration in GUI as a full replacement for legacy `Audio / Mikrofon`.
+- Sound camera rendering approaches:
+  - `Payload`
+  - `Lissajous`
+  - `Classic`
+- Classic style variants:
+  - `CLASSIC`
+  - `FUSE7`
+  - `FUSE4_base`
+- New release documentation:
+  - `docs/RELEASE_3_6.md`
+  - `docs/DEPENDENCY_LINKS.md`
+- New branding assets for EXE build:
+  - `resources/branding/pektool-ico.ico`
+  - `resources/branding/file_version_info.txt`
+
+### Changed
+- Project version bumped to `3.6.0`.
+- GUI title updated to `PEKAT Inspection Tool V03.6`.
+- GUI vertical layout optimized across tabs with adaptive window sizing and improved space usage.
+- `Pekat Info` network section (`PC network settings`) now expands to fill remaining tab space.
+- PyInstaller configuration updated:
+  - executable icon configured
+  - release dist folder name changed to `PEKAT_Inspection_tool_by_PJ_V03_6`
+  - Windows file/product version metadata aligned to `3.6.0`
+
+### Documentation
+- Updated:
+  - `README.md`
+  - `docs/USER_GUIDE.md`
+  - `docs/TECHNICAL_OVERVIEW.md`
+  - `docs/PEKAT_CODE_SCRIPT_CATALOG.md`
+  - `docs/TUNING_CATALOG_FORMAT.md`
+  - `docs/LIB_INSTALLER_PYZBAR.md`
+- Release cross-links added for user and technical navigation.
+
 ## [3.4.0] - 2026-02-16
 
 ### Added

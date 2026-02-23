@@ -126,3 +126,24 @@ def test_repo_pyzbar_payload_contains_runtime_files():
     payload_dir = root / "resources" / "pekat_libs" / "pyzbar" / "payload" / "pyzbar"
     assert (payload_dir / "libzbar-64.dll").exists()
     assert (payload_dir / "__init__.py").exists()
+
+
+def test_repo_onnxruntime_realesrgan_payload_contains_required_files():
+    root = Path(__file__).resolve().parents[1]
+    payload_root = root / "resources" / "pekat_libs" / "onnxruntime_realesrgan" / "payload"
+
+    assert (payload_root / "pydeps" / "onnxruntime" / "capi" / "onnxruntime_pybind11_state.pyd").exists()
+    assert (payload_root / "pydeps" / "onnxruntime" / "capi" / "onnxruntime.dll").exists()
+    assert (payload_root / "pydeps" / "onnxruntime" / "capi" / "onnxruntime_providers_shared.dll").exists()
+    assert (payload_root / "models" / "real_esrgan_general_x4v3.onnx").exists()
+    assert (payload_root / "models" / "real_esrgan_general_x4v3.data").exists()
+
+
+def test_repo_onnxruntime_realesrgan_manifest_payload_is_complete(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    installer = LibraryInstaller(
+        resources_root=root / "resources" / "pekat_libs",
+        logs_root=tmp_path / "logs",
+    )
+    missing = installer.validate_manifest_payload("onnxruntime_realesrgan")
+    assert missing == []

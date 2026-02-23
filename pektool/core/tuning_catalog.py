@@ -28,6 +28,22 @@ DEFAULT_CATEGORY_ORDER = [
     "Obecne",
 ]
 
+MANUAL_METADATA_OVERRIDES: Dict[str, dict] = {
+    "pyzbar_barcode_reader.txt": {
+        "category": "Detekce",
+        "purpose": "Dekodovani carovych a 2D kodu pomoci pyzbar",
+        "what_it_does": (
+            "V ROI vytvori vice predzpracovanych variant (upscale/CLAHE/Otsu/adaptive/invert), "
+            "dekoduje pyzbar, zapisuje vystup do context['barcode'] a context['barcode_debug'], "
+            "volitelne kresli overlay a debug vystupy."
+        ),
+        "context_keys": "image, barcode, barcode_debug",
+        "dependencies": "pyzbar, cv2, numpy",
+        "short_description": "Cteni carovych a 2D kodu pres pyzbar s robustnim predzpracovanim ROI.",
+        "description_source": "manual",
+    }
+}
+
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -315,6 +331,17 @@ def _generate_metadata(filename: str, text_preview: str) -> dict:
     }
 
 
+def _merge_metadata_with_fallback(primary: dict, fallback: dict) -> dict:
+    merged = dict(fallback)
+    for key, value in primary.items():
+        if isinstance(value, str):
+            if value.strip():
+                merged[key] = value
+        elif value is not None:
+            merged[key] = value
+    return merged
+
+
 class TuningCatalog:
     def __init__(self, root: Optional[Path] = None) -> None:
         project_root = resolve_project_root()
@@ -402,6 +429,13 @@ class TuningCatalog:
                     metadata[key] = merged
                 else:
                     metadata[key] = value
+
+        for key, value in MANUAL_METADATA_OVERRIDES.items():
+            normalized_key = _normalize_filename(key)
+            if normalized_key in metadata:
+                metadata[normalized_key] = _merge_metadata_with_fallback(metadata[normalized_key], value)
+            else:
+                metadata[normalized_key] = dict(value)
         return metadata, categories
 
     def _next_unique_id(self, base_slug: str, used_ids: set[str]) -> str:
